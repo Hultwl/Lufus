@@ -53,6 +53,7 @@ static GtkWidget *cluster_drop;
 static GtkWidget *passes_drop;
 static GtkWidget *label_entry;
 static GtkWidget *persist_spin;
+static GtkWidget *persist_label;
 static GtkWidget *progress;
 static GtkWidget *status_label;
 static GtkWidget *sum_label;
@@ -169,13 +170,26 @@ static void on_target_changed(GtkDropDown *d, gpointer u) {
   syncing = 0;
 }
 
-static void on_boot_changed(GtkDropDown *d, gpointer u) {
-  (void)d; (void)u;
+static void update_sensitivities(void) {
   int iso = boot_is_iso();
+  const char *img = drop_text(image_drop, "");
+  int iso_mode = iso && !strncmp(img, "Write in ISO", 12);
   gtk_widget_set_sensitive(select_btn, iso);
   gtk_widget_set_sensitive(hash_btn, iso && has_iso);
   gtk_widget_set_sensitive(image_drop, iso);
-  gtk_widget_set_sensitive(persist_spin, iso);
+  // Persistence only exists for ISO-image (file) installs, like casper-rw.
+  gtk_widget_set_sensitive(persist_spin, iso_mode);
+  gtk_widget_set_sensitive(persist_label, iso_mode);
+}
+
+static void on_boot_changed(GtkDropDown *d, gpointer u) {
+  (void)d; (void)u;
+  update_sensitivities();
+}
+
+static void on_image_changed(GtkDropDown *d, gpointer u) {
+  (void)d; (void)u;
+  update_sensitivities();
 }
 
 static void sanitize_label(const char *in, const char *fs, char *out, size_t cap) {
@@ -236,6 +250,7 @@ static void on_iso_response(GtkNativeDialog *d, int r, gpointer w) {
           gtk_label_set_text(GTK_LABEL(sum_label), _("SHA-256: (large file — use # button)"));
         }
         gtk_widget_set_sensitive(hash_btn, TRUE);
+        update_sensitivities();
       } else {
         gui_log("Cannot probe selected file.");
       }
@@ -529,10 +544,17 @@ static void activate(GtkApplication *app, gpointer u) {
     const char *opts[] = {"Write in DD Image mode", "Write in ISO Image mode", NULL};
     image_drop = gtk_drop_down_new_from_strings(opts);
     gtk_widget_set_hexpand(image_drop, TRUE);
+    g_signal_connect(image_drop, "notify::selected", G_CALLBACK(on_image_changed), NULL);
     gtk_box_append(GTK_BOX(r), image_drop);
-    GtkWidget *pl = gtk_label_new("Persistence (MB):");
+    persist_label = gtk_label_new("Persistence (MB, 0 = off):");
+    gtk_widget_set_tooltip_text(persist_label,
+        "Extra ext4 casper-rw partition for Ubuntu-like live USBs.\n"
+        "Only used in ISO Image mode. 0 means no persistence.");
     persist_spin = gtk_spin_button_new_with_range(0, 16384, 256);
-    gtk_box_append(GTK_BOX(r), pl);
+    gtk_widget_set_tooltip_text(persist_spin,
+        "Extra ext4 casper-rw partition for Ubuntu-like live USBs.\n"
+        "Only used in ISO Image mode. 0 means no persistence.");
+    gtk_box_append(GTK_BOX(r), persist_label);
     gtk_box_append(GTK_BOX(r), persist_spin);
   }
   {
@@ -686,6 +708,7 @@ static void activate(GtkApplication *app, gpointer u) {
   gtk_window_present(GTK_WINDOW(toplevel));
   on_refresh(NULL, NULL);
   on_boot_changed(NULL, NULL);
+  on_scheme_changed(NULL, NULL); // startup lock: GPT -> UEFI (non CSM)
   gui_log("Rufux ready. Select a device and an image, then press START.");
 }
 

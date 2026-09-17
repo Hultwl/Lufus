@@ -69,8 +69,10 @@ static void cli_clog(const char *m, void *u) {
 
 int main(int argc, char **argv) {
   rufux_i18n_init();
-  if (argc >= 2 && (!strcmp(argv[1], "--gui") || !strcmp(argv[1], "gui")))
+  if (argc >= 2 && (!strcmp(argv[1], "--gui") || !strcmp(argv[1], "gui"))) {
+    rufux_escalate_gui(argc, argv); // no-op when root (or RUFUX_NO_ESCALATE)
     return rufux_gui_run(argc, argv);
+  }
 
   if (argc >= 2 && !strcmp(argv[1], "list")) {
     int json = 0, allow = 0;
