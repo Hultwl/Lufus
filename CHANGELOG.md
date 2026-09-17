@@ -1,6 +1,16 @@
 # Changelog
 
-## 1.0
+## 1.1
+
+- Real progress bar: every flow reports staged percent end to end
+  (bad-blocks 0-10, zero 10-15, write 15-85, verify 85-100; extract
+  8-82 via destination-growth polling, rest named stages). CLI shows
+  speed + ETA; GUI status shows live percent.
+- Extraction progress for CLI `extract` too (was silent).
+- Run safety: START/CLOSE lock while the worker runs (no double
+  burns, no closing mid-write); writer refuses source == target.
+- vfat + >4GiB image refused early with an NTFS/exFAT pointer
+  (FAT32 cannot hold such files; UEFI:NTFS driver is future work).
 
 - Consolidated stable release: everything below in one cut.
 - AppImage attached to the release (built by CI on Ubuntu 24.04).

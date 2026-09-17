@@ -31,6 +31,15 @@ int rufux_write_image(const char *src, const char *dst,
   if (rufux_check_target(dst, opts->allow_fixed, opts->allow_file,
                          err, errcap) != 0)
     return -1;
+  // Footgun guard: source and target must not be the same file/device.
+  {
+    struct stat dstst;
+    if (stat(dst, &dstst) == 0 && dstst.st_dev == sst.st_dev &&
+        dstst.st_ino == sst.st_ino) {
+      snprintf(err, errcap, "source and target are the same file ('%s')", src);
+      return -1;
+    }
+  }
 
   FILE *fin = fopen(src, "rb");
   if (!fin) {
@@ -135,6 +144,8 @@ int rufux_write_image(const char *src, const char *dst,
   if (cb) cb(done, total, user);
 
   if (!rc && opts->verify) {
+    RufuxWriteProgress vcb = opts->vprog ? opts->vprog : cb;
+    void *vuser = opts->vprog ? opts->vuser : user;
     FILE *fa = fopen(src, "rb");
     int fb = open(dst, O_RDONLY | O_CLOEXEC);
     if (!fa || fb < 0) {
@@ -162,7 +173,7 @@ int rufux_write_image(const char *src, const char *dst,
         break;
       }
       vdone += na;
-      if (cb) cb(vdone, total, user);
+      if (vcb) vcb(vdone, total, vuser);
     }
     free(ba); free(bb);
     fclose(fa); close(fb);

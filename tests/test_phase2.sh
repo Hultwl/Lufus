@@ -85,5 +85,13 @@ truncate -s 64M "$IMG"
 "$RUFUX" create "$ISO" "$IMG" --mode extract --scheme gpt --fs vfat --dry-run --allow-file | grep -q "steps:" \
   && ok "create disk plan" || bad "create disk plan"
 
+# 8. vfat refuses >4GiB images early (sparse fixture, instant)
+BIG="$TMP/big.iso"; truncate -s 5G "$BIG"
+if "$RUFUX" create "$BIG" "$TMP/cdir2" --mode extract --fs vfat --dry-run --allow-file 2>&1 | grep -q "4 GiB"; then
+  ok "vfat >4GiB refused"
+else
+  bad "vfat >4GiB refused"
+fi
+
 echo "--- $pass passed, $fail failed ---"
 [ "$fail" -eq 0 ]

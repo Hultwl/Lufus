@@ -12,6 +12,9 @@ typedef struct {
   int allow_fixed;
   int allow_file;
   int yes; // required for non-dry-run
+  // Optional separate verify-phase reporting (else cb is reused).
+  RufuxWriteProgress vprog;
+  void *vuser;
 } RufuxWriteOpts;
 
 int rufux_write_image(const char *src, const char *dst,

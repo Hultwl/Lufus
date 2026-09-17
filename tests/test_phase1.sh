@@ -62,5 +62,8 @@ if "$RUFUX" write "$FAKE" "$DST" --real --allow-file >/dev/null 2>&1; then bad "
 # 7. safety: file target without --allow-file must fail
 if "$RUFUX" write "$FAKE" "$DST" --dry-run >/dev/null 2>&1; then bad "file target without --allow-file should fail"; else ok "file target refused by default"; fi
 
+# 8. safety: source and target must differ
+if "$RUFUX" write "$FAKE" "$FAKE" --dry-run --allow-file >/dev/null 2>&1; then bad "src==dst should fail"; else ok "src==dst refused"; fi
+
 echo "--- $pass passed, $fail failed ---"
 [ "$fail" -eq 0 ]

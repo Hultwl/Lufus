@@ -3,6 +3,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <time.h>
 #include <sys/stat.h>
 #include "linux/device.h"
 #include "linux/iso_probe.h"
@@ -52,9 +53,33 @@ static void usage(const char *p) {
 static void cli_progress(unsigned long long done, unsigned long long total, void *u) {
   (void)u;
   static int last = -1;
+  static double t0 = 0;
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  double now = ts.tv_sec + ts.tv_nsec / 1e9;
+  // Percent-normalized mode (overall flow progress): total == 100.
+  if (total == 100 && done <= 100) {
+    int pct = (int)done;
+    if (pct != last) {
+      fprintf(stderr, "\r%3d%%", pct);
+      if (done == total) fprintf(stderr, "\n");
+      last = pct;
+    }
+    return;
+  }
+  if (t0 == 0 || done == 0) { t0 = now; last = -1; }
   int pct = total ? (int)(done * 100 / total) : 100;
   if (pct != last && (pct % 5 == 0 || done == total)) {
-    fprintf(stderr, "\r%3d%%  %llu/%llu MB", pct, done >> 20, total >> 20);
+    double el = now - t0 > 0 ? now - t0 : 0.001;
+    double rate = done / el / 1048576.0; // MB/s
+    if (done == total || rate <= 0) {
+      fprintf(stderr, "\r%3d%%  %llu/%llu MB  %.1f MB/s", pct,
+              done >> 20, total >> 20, rate);
+    } else {
+      unsigned eta = (unsigned)((total - done) / done * el);
+      fprintf(stderr, "\r%3d%%  %llu/%llu MB  %.1f MB/s  ETA %u:%02u", pct,
+              done >> 20, total >> 20, rate, eta / 60, eta % 60);
+    }
     if (done == total) fprintf(stderr, "\n");
     last = pct;
   }
@@ -192,7 +217,8 @@ int main(int argc, char **argv) {
       if (!strcmp(argv[i], "--dry-run")) dry = 1;
     char err[512] = {0};
     printf("extract %s -> %s%s\n", argv[2], argv[3], dry ? " [dry-run]" : "");
-    if (rufux_extract_iso(argv[2], argv[3], dry, err, sizeof err) != 0) {
+    if (rufux_extract_iso_progress(argv[2], argv[3], dry, cli_progress, NULL,
+                                   err, sizeof err) != 0) {
       fprintf(stderr, "extract failed: %s\n", err);
       return 3;
     }

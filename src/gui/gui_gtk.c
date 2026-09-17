@@ -59,6 +59,8 @@ static int run_modal(GtkWindow *parent, GtkWidget *dlg) {
 }
 
 static GtkWidget *toplevel;
+static GtkWidget *start_btn;
+static GtkWidget *close_btn;
 static GtkWidget *log_view;
 static GtkWidget *log_box;
 static GtkWidget *dev_drop;
@@ -495,9 +497,14 @@ static void on_start(GtkButton *b, gpointer win) {
     g_clear_error(&gerr);
     gui_log(m);
     gui_status("Failed");
+    gtk_widget_set_sensitive(start_btn, TRUE);
+    gtk_widget_set_sensitive(close_btn, TRUE);
     return;
   }
-  // Stream worker output: stdout lines -> log, stderr carries \r progress.
+  // No double burns, no closing mid-write (Rufus locks its buttons too).
+  gtk_widget_set_sensitive(start_btn, FALSE);
+  gtk_widget_set_sensitive(close_btn, FALSE);
+  // Stream worker output: stdout lines -> log, stderr carries overall %.
   GDataInputStream *out = g_data_input_stream_new(g_subprocess_get_stdout_pipe(proc));
   GInputStream *errs = g_subprocess_get_stderr_pipe(proc);
   GMainLoop *loop = g_main_loop_new(NULL, FALSE);
@@ -515,15 +522,19 @@ static void on_start(GtkButton *b, gpointer win) {
         G_POLLABLE_INPUT_STREAM(errs), ebuf, sizeof ebuf - 1, NULL, NULL);
     if (n > 0) {
       ebuf[n] = 0;
-      // progress format: "\r 42%  20/48 MB" — take the last percentage
+      // Overall progress is percent-normalized ("\r 42%").
       char *pct = NULL, *q = ebuf;
       while ((q = strchr(q, '%')) != NULL) { pct = q; q++; }
       if (pct) {
         int p = 0;
         char *s = pct - 1;
         while (s >= ebuf && *s != '\r' && *s != '\n') s--;
-        if (sscanf(s + 1, "%d%%", &p) == 1 && p >= 0 && p <= 100)
+        if (sscanf(s + 1, "%d%%", &p) == 1 && p >= 0 && p <= 100) {
           gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress), p / 100.0);
+          char st[64];
+          snprintf(st, sizeof st, "Working… %d%%", p);
+          gui_status(st);
+        }
       }
     }
     if (g_subprocess_get_if_exited(proc)) {
@@ -540,6 +551,8 @@ static void on_start(GtkButton *b, gpointer win) {
   g_object_unref(out);
   g_object_unref(proc);
   g_main_loop_unref(loop);
+  gtk_widget_set_sensitive(start_btn, TRUE);
+  gtk_widget_set_sensitive(close_btn, TRUE);
   if (!ok) {
     gui_log("Failed: worker reported an error (see log above).");
     gui_status("Failed");
@@ -792,9 +805,11 @@ static void activate(GtkApplication *app, gpointer u) {
     gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(logbtn), TRUE);
     g_signal_connect(logbtn, "toggled", G_CALLBACK(on_log_toggle), NULL);
     GtkWidget *start = gtk_button_new_with_label("START");
+    start_btn = start;
     gtk_widget_set_hexpand(start, TRUE);
     g_signal_connect(start, "clicked", G_CALLBACK(on_start), toplevel);
     GtkWidget *close = gtk_button_new_with_label("CLOSE");
+    close_btn = close;
     g_signal_connect(close, "clicked", G_CALLBACK(on_close), app);
     gtk_box_append(GTK_BOX(r), logbtn);
     gtk_box_append(GTK_BOX(r), start);
