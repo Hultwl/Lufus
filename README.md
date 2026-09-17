@@ -1,4 +1,4 @@
-# Rufux — Rufus for Linux (stable v1.0.3)
+# Rufux — Rufus for Linux (stable 1.0)
 
 Fork of [pbatard/rufus](https://github.com/pbatard/rufus) (GPLv3), ported to Linux.
 
@@ -18,7 +18,7 @@ sudo cmake --install build
 rufux --gui
 ```
 
-## Status: stable v1.0.3 — see PHASES.md + CHANGELOG.md
+## Status: stable 1.0 — see PHASES.md + CHANGELOG.md
 
 Quick check: `./build/rufux list`, `./build/rufux probe file.iso --detail`,
 `./build/rufux --gui`. Destructive commands default to `--dry-run`;

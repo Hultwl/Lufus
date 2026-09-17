@@ -338,6 +338,10 @@ int main(int argc, char **argv) {
     }
     return 0;
   }
+  // Double-click / app-grid behavior like upstream Rufus: with no
+  // arguments and a display available, open the GUI instead of usage.
+  if (getenv("DISPLAY") || getenv("WAYLAND_DISPLAY"))
+    return rufux_gui_run(argc, argv);
   usage(argv[0]);
   return 0;
 }

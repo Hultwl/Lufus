@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0
+
+- Consolidated stable release: everything below in one cut.
+- AppImage attached to the release (built by CI on Ubuntu 22.04).
+- Bare `rufux` with a display opens the GUI (app-grid friendly).
+
 ## v1.0.3
 
 - Fix GPT ESP type: real GUID C12A7328-F81F-11D2-BA4B-00A0C93EC93B

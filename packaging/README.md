@@ -1,5 +1,19 @@
 # Packaging Rufux
 
+## AppImage (recommended portable build)
+
+Attached to every GitHub release, built by
+`.github/workflows/appimage.yml` on Ubuntu 22.04:
+
+```sh
+chmod +x Rufux-x86_64.AppImage
+./Rufux-x86_64.AppImage   # opens the GUI; CLI via --help etc.
+```
+
+Like the native package it shells out to host tools for
+formatting/partitioning (`dosfstools`, `ntfsprogs`, `exfatprogs`,
+`e2fsprogs`, `util-linux`, `syslinux`, `udisks2`, `libarchive`).
+
 ## Arch Linux (AUR)
 
 `packaging/PKGBUILD` builds from the `v1.0.0` tag:
