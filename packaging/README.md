@@ -3,7 +3,7 @@
 ## AppImage (recommended portable build)
 
 Attached to every GitHub release, built by
-`.github/workflows/appimage.yml` on Ubuntu 22.04:
+`.github/workflows/appimage.yml` on Ubuntu 24.04 (GTK 4.10+ floor):
 
 ```sh
 chmod +x Rufux-x86_64.AppImage

@@ -8,7 +8,7 @@ add_compile_definitions(RUFUX_VERSION="${PROJECT_VERSION}")
 add_compile_definitions(RUFUX_LOCALEDIR="${CMAKE_INSTALL_PREFIX}/share/locale")
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(GTK4 gtk4)
+pkg_check_modules(GTK4 "gtk4>=4.10")
 pkg_check_modules(UDEV libudev)
 pkg_check_modules(BLKID blkid)
 

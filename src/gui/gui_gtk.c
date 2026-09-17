@@ -853,7 +853,7 @@ int rufux_gui_run(int argc, char **argv) {
     // needs no persisted preferences. Respects an explicit user value.
     setenv("GSETTINGS_BACKEND", "memory", 0);
   }
-  GtkApplication *app = gtk_application_new("io.github.hultwl.rufux", G_APPLICATION_DEFAULT_FLAGS);
+  GtkApplication *app = gtk_application_new("io.github.hultwl.rufux", G_APPLICATION_FLAGS_NONE);
   g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
   int st = g_application_run(G_APPLICATION(app), nf, filtered);
   g_object_unref(app);
