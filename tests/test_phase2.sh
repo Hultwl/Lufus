@@ -54,9 +54,14 @@ FN="$TMP/nt.img"; truncate -s 64M "$FN"
 truncate -s 64M "$IMG"
 "$RUFUX" partition "$IMG" --scheme dos --layout single --real --allow-file --yes >/dev/null 2>&1
 BEFORE_PT="$(sfdisk -d "$IMG" 2>/dev/null | grep -v '^label:')"
-"$RUFUX" install-boot "$IMG" --mbr bios --real --allow-file --yes >/dev/null 2>&1 \
+if "$RUFUX" install-boot "$IMG" --mbr bios --real --allow-file --yes >"$TMP/boot.log" 2>&1 \
   && AFTER_PT="$(sfdisk -d "$IMG" 2>/dev/null | grep -v '^label:')" \
-  && [ "$BEFORE_PT" = "$AFTER_PT" ] && ok "install-boot preserves table" || bad "install-boot preserves table"
+  && [ "$BEFORE_PT" = "$AFTER_PT" ]; then
+  ok "install-boot preserves table"
+else
+  bad "install-boot preserves table"
+  echo "--- install-boot output ---"; cat "$TMP/boot.log"
+fi
 
 # 5. persist file
 PDIR="$TMP/mnt"; mkdir -p "$PDIR"
