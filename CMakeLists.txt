@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Rufux VERSION 1.0.1 LANGUAGES C)
+project(Rufux VERSION 1.0.2 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -75,6 +75,12 @@ install(TARGETS rufux DESTINATION bin)
 install(FILES doc/rufux.1 DESTINATION share/man/man1)
 install(FILES res/linux/io.github.hultwl.rufux.desktop DESTINATION share/applications)
 install(FILES res/linux/io.github.hultwl.rufux.policy DESTINATION share/polkit-1/actions)
+# App icon (upstream Rufus artwork, GPLv3, renamed to our app id)
+foreach(SZ 128 64 32)
+  install(FILES res/icons/rufus-${SZ}.png
+    DESTINATION share/icons/hicolor/${SZ}x${SZ}/apps
+    RENAME io.github.hultwl.rufux.png)
+endforeach()
 
 enable_testing()
 add_test(NAME phase1 COMMAND bash ${CMAKE_SOURCE_DIR}/tests/test_phase1.sh $<TARGET_FILE:rufux>)

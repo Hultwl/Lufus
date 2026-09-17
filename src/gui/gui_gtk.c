@@ -16,7 +16,25 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <ctype.h>
+#include <pwd.h>
 #include <sys/stat.h>
+
+// Invoking (non-root) user home: pkexec/sudo stash the uid for us.
+static const char *invoking_home(void) {
+  static char home[1024] = {0};
+  if (home[0]) return home;
+  const char *e = getenv("PKEXEC_UID");
+  if (!e) e = getenv("SUDO_UID");
+  if (e) {
+    struct passwd *pw = getpwuid((uid_t)strtoul(e, NULL, 10));
+    if (pw && pw->pw_dir && pw->pw_dir[0]) {
+      snprintf(home, sizeof home, "%s", pw->pw_dir);
+      return home;
+    }
+  }
+  snprintf(home, sizeof home, "%s", g_get_home_dir());
+  return home;
+}
 
 // gtk_dialog_run() is gone in GTK4: nested-loop modal helper.
 typedef struct { GMainLoop *loop; int resp; } ModalCtx;
@@ -81,6 +99,11 @@ static void gui_log(const char *msg) {
   GtkTextBuffer *buf = gtk_text_view_get_buffer(GTK_TEXT_VIEW(log_view));
   GtkTextIter end;
   gtk_text_buffer_get_end_iter(buf, &end);
+  GDateTime *now = g_date_time_new_now_local();
+  char *ts = g_date_time_format(now, "[%H:%M:%S] ");
+  gtk_text_buffer_insert(buf, &end, ts ? ts : "", -1);
+  g_free(ts);
+  g_date_time_unref(now);
   gtk_text_buffer_insert(buf, &end, msg, -1);
   gtk_text_buffer_insert(buf, &end, "\n", -1);
 }
@@ -205,13 +228,20 @@ static void sanitize_label(const char *in, const char *fs, char *out, size_t cap
 }
 
 // --- SELECT (IDC_SELECT): pick image ---
-static void on_iso_response(GtkNativeDialog *d, int r, gpointer w) {
-  (void)w;
-  if (r == GTK_RESPONSE_ACCEPT) {
-    GListModel *files = gtk_file_chooser_get_files(GTK_FILE_CHOOSER(d));
-    GFile *gf = G_FILE(g_list_model_get_object(files, 0));
-    char *p = gf ? g_file_get_path(gf) : NULL;
-    if (p) {
+static void select_finished(GObject *src, GAsyncResult *res, gpointer win) {
+  (void)win;
+  GtkFileDialog *dlg = GTK_FILE_DIALOG(src);
+  GError *err = NULL;
+  GFile *gf = gtk_file_dialog_open_finish(dlg, res, &err);
+  if (!gf) {
+    if (err && err->code != GTK_DIALOG_ERROR_DISMISSED)
+      gui_log("File picker failed.");
+    g_clear_error(&err);
+    g_object_unref(dlg);
+    return;
+  }
+  char *p = g_file_get_path(gf);
+  if (p) {
       snprintf(sel_iso, sizeof sel_iso, "%s", p);
       char msg[1408];
       if (rufux_probe_iso_detail(p, &sel_info) == 0) {
@@ -255,24 +285,40 @@ static void on_iso_response(GtkNativeDialog *d, int r, gpointer w) {
         gui_log("Cannot probe selected file.");
       }
       g_free(p);
-    }
-    if (gf) g_object_unref(gf);
-    g_object_unref(files);
   }
-  g_object_unref(d);
+  g_object_unref(gf);
+  g_object_unref(dlg);
 }
 
 static void on_select(GtkButton *btn, gpointer win) {
   (void)btn;
-  GtkFileChooserNative *fc = gtk_file_chooser_native_new(
-      "Select image", GTK_WINDOW(win), GTK_FILE_CHOOSER_ACTION_OPEN, "_Open", "_Cancel");
+  // GtkFileDialog is portal-native: opens the system file manager
+  // (COSMIC Files, Dolphin, Nautilus) whenever the session bus is up.
+  GtkFileDialog *dlg = gtk_file_dialog_new();
+  gtk_file_dialog_set_title(dlg, "Select image");
+  GListStore *filters = g_list_store_new(GTK_TYPE_FILE_FILTER);
   GtkFileFilter *f = gtk_file_filter_new();
+  gtk_file_filter_set_name(f, "Disk images (iso, img, vhd)");
   gtk_file_filter_add_pattern(f, "*.iso");
   gtk_file_filter_add_pattern(f, "*.img");
   gtk_file_filter_add_pattern(f, "*.vhd");
-  gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(fc), f);
-  gtk_native_dialog_show(GTK_NATIVE_DIALOG(fc));
-  g_signal_connect(fc, "response", G_CALLBACK(on_iso_response), win);
+  g_list_store_append(filters, f);
+  GtkFileFilter *all = gtk_file_filter_new();
+  gtk_file_filter_set_name(all, "All files");
+  gtk_file_filter_add_pattern(all, "*");
+  g_list_store_append(filters, all);
+  gtk_file_dialog_set_filters(dlg, G_LIST_MODEL(filters));
+  gtk_file_dialog_set_default_filter(dlg, f);
+  g_object_unref(filters);
+  // Start where the images live: the invoking user's Downloads.
+  char dl[1152];
+  snprintf(dl, sizeof dl, "%s/Downloads", invoking_home());
+  if (access(dl, R_OK | X_OK) == 0) {
+    GFile *dir = g_file_new_for_path(dl);
+    gtk_file_dialog_set_initial_folder(dlg, dir);
+    g_object_unref(dir);
+  }
+  gtk_file_dialog_open(dlg, GTK_WINDOW(win), NULL, select_finished, win);
 }
 
 // --- checksum (IDC_HASH): SHA-256 dialog ---
@@ -458,42 +504,110 @@ static void on_log_clear(GtkButton *b, gpointer u) {
   gtk_text_buffer_set_text(buf, "", -1);
 }
 
-static void on_log_save_response(GtkNativeDialog *d, int r, gpointer w) {
+static void save_finished(GObject *src, GAsyncResult *res, gpointer w) {
   (void)w;
-  if (r == GTK_RESPONSE_ACCEPT) {
-    GListModel *files = gtk_file_chooser_get_files(GTK_FILE_CHOOSER(d));
-    GFile *gf = G_FILE(g_list_model_get_object(files, 0));
-    char *p = gf ? g_file_get_path(gf) : NULL;
-    if (p) {
-      GtkTextBuffer *buf = gtk_text_view_get_buffer(GTK_TEXT_VIEW(log_view));
-      GtkTextIter a, z;
-      gtk_text_buffer_get_bounds(buf, &a, &z);
-      char *txt = gtk_text_buffer_get_text(buf, &a, &z, FALSE);
-      FILE *f = fopen(p, "w");
-      if (f) { fputs(txt, f); fclose(f); gui_log("Log saved."); }
-      else gui_log("Cannot save log.");
-      g_free(txt);
-      g_free(p);
-    }
-    if (gf) g_object_unref(gf);
-    g_object_unref(files);
+  GtkFileDialog *dlg = GTK_FILE_DIALOG(src);
+  GError *err = NULL;
+  GFile *gf = gtk_file_dialog_save_finish(dlg, res, &err);
+  if (!gf) {
+    if (err && err->code != GTK_DIALOG_ERROR_DISMISSED)
+      gui_log("Save failed.");
+    g_clear_error(&err);
+    g_object_unref(dlg);
+    return;
   }
-  g_object_unref(d);
+  char *p = g_file_get_path(gf);
+  if (p) {
+    GtkTextBuffer *buf = gtk_text_view_get_buffer(GTK_TEXT_VIEW(log_view));
+    GtkTextIter a, z;
+    gtk_text_buffer_get_bounds(buf, &a, &z);
+    char *txt = gtk_text_buffer_get_text(buf, &a, &z, FALSE);
+    FILE *f = fopen(p, "w");
+    if (f) { fputs(txt, f); fclose(f); gui_log("Log saved."); }
+    else gui_log("Cannot save log.");
+    g_free(txt);
+    g_free(p);
+  }
+  g_object_unref(gf);
+  g_object_unref(dlg);
 }
 
 static void on_log_save(GtkButton *b, gpointer win) {
   (void)b;
-  GtkFileChooserNative *fc = gtk_file_chooser_native_new(
-      "Save log", GTK_WINDOW(win), GTK_FILE_CHOOSER_ACTION_SAVE, "_Save", "_Cancel");
-  gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(fc), "rufux.log");
-  gtk_native_dialog_show(GTK_NATIVE_DIALOG(fc));
-  g_signal_connect(fc, "response", G_CALLBACK(on_log_save_response), win);
+  GtkFileDialog *dlg = gtk_file_dialog_new();
+  gtk_file_dialog_set_title(dlg, "Save log");
+  gtk_file_dialog_set_initial_name(dlg, "rufux.log");
+  gtk_file_dialog_save(dlg, GTK_WINDOW(win), NULL, save_finished, win);
 }
 
 static GtkWidget *hrow(GtkWidget *box) {
   GtkWidget *r = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   gtk_box_append(GTK_BOX(box), r);
   return r;
+}
+
+// Root GUI can't see the session bus, so it can't ask the desktop for
+// the theme. Inherit it from config files instead. Precedence:
+// --theme flag > ~/.config/rufux/settings.ini > GTK settings.ini >
+// COSMIC (dark-first desktop) > system default.
+static void apply_user_theme(void) {
+  if (opt_dark >= 0) return; // explicit --theme already applied
+  GtkSettings *st = gtk_settings_get_default();
+  if (!st) return;
+  char path[1152];
+  snprintf(path, sizeof path, "%s/.config/rufux/settings.ini", invoking_home());
+  GKeyFile *kf = g_key_file_new();
+  gboolean have = g_key_file_load_from_file(kf, path, G_KEY_FILE_NONE, NULL);
+  if (have) {
+    if (g_key_file_has_key(kf, "ui", "theme-name", NULL)) {
+      char *t = g_key_file_get_string(kf, "ui", "theme-name", NULL);
+      if (t && t[0]) g_object_set(st, "gtk-theme-name", t, NULL);
+      g_free(t);
+    }
+    if (g_key_file_has_key(kf, "ui", "dark", NULL)) {
+      g_object_set(st, "gtk-application-prefer-dark-theme",
+                   g_key_file_get_boolean(kf, "ui", "dark", NULL) ? TRUE : FALSE, NULL);
+      g_key_file_free(kf);
+      return;
+    }
+    g_key_file_free(kf);
+    return; // rufux config without dark key: respect theme only
+  }
+  g_key_file_free(kf);
+  // Fall back to the desktop's GTK config (GNOME/KDE/Xfce write here).
+  kf = g_key_file_new();
+  const char *inis[] = {"/.config/gtk-4.0/settings.ini", "/.config/gtk-3.0/settings.ini"};
+  have = FALSE;
+  for (int i = 0; i < 2 && !have; i++) {
+    snprintf(path, sizeof path, "%s%s", invoking_home(), inis[i]);
+    have = g_key_file_load_from_file(kf, path, G_KEY_FILE_NONE, NULL);
+  }
+  if (have) {
+    char *t = NULL;
+    if (g_key_file_has_key(kf, "Settings", "gtk-theme-name", NULL))
+      t = g_key_file_get_string(kf, "Settings", "gtk-theme-name", NULL);
+    if (t && t[0]) {
+      g_object_set(st, "gtk-theme-name", t, NULL);
+      if (strstr(t, "dark") || strstr(t, "Dark")) {
+        gboolean dark = TRUE;
+        if (g_key_file_has_key(kf, "Settings", "gtk-application-prefer-dark-theme", NULL))
+          dark = g_key_file_get_boolean(kf, "Settings", "gtk-application-prefer-dark-theme", NULL);
+        g_object_set(st, "gtk-application-prefer-dark-theme", dark, NULL);
+      } else if (g_key_file_has_key(kf, "Settings", "gtk-application-prefer-dark-theme", NULL)) {
+        g_object_set(st, "gtk-application-prefer-dark-theme",
+                     g_key_file_get_boolean(kf, "Settings", "gtk-application-prefer-dark-theme", NULL), NULL);
+      }
+      g_free(t);
+      g_key_file_free(kf);
+      return;
+    }
+    g_free(t);
+  }
+  g_key_file_free(kf);
+  // COSMIC is dark-first and keeps no GTK settings.ini: match it.
+  snprintf(path, sizeof path, "%s/.config/cosmic", invoking_home());
+  if (access(path, R_OK | X_OK) == 0)
+    g_object_set(st, "gtk-application-prefer-dark-theme", TRUE, NULL);
 }
 
 static void activate(GtkApplication *app, gpointer u) {
@@ -504,6 +618,8 @@ static void activate(GtkApplication *app, gpointer u) {
   if (opt_dark >= 0) {
     GtkSettings *st = gtk_settings_get_default();
     if (st) g_object_set(st, "gtk-application-prefer-dark-theme", opt_dark ? TRUE : FALSE, NULL);
+  } else {
+    apply_user_theme();
   }
   GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
   gtk_widget_set_margin_top(box, 10); gtk_widget_set_margin_bottom(box, 10);

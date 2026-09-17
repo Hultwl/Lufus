@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.0.2
+
+- GUI polish: portal-native file pickers (GtkFileDialog opens the
+  system file manager), theme inheritance (flag > rufux config >
+  GTK settings > COSMIC dark default), log timestamps, app icon
+  installed; dconf silenced for root sessions.
+
 ## v1.0.1
 
 - Rename: Lufus → Rufux. The name Lufus belongs to the established
