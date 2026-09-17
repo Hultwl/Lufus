@@ -6,4 +6,6 @@
 // mkfs.* in /usr/sbin, Arch merges them into /usr/bin).
 int rufux_run(const char *const argv[], int dry_run);
 int rufux_have(const char *name); // 1 if executable found via PATH
+// fork+execvp with stdout+stderr captured. No shell, argv only.
+int rufux_capture(const char *const av[], char *out, unsigned long cap);
 #endif

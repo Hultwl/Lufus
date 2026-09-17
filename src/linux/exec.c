@@ -40,3 +40,36 @@ int rufux_run(const char *const argv[], int dry_run) {
   while (waitpid(p, &st, 0) < 0) {}
   return (WIFEXITED(st) && WEXITSTATUS(st) == 0) ? 0 : -1;
 }
+
+int rufux_capture(const char *const av[], char *out, unsigned long cap) {
+  if (!out || cap == 0) return -1;
+  out[0] = 0;
+  int fd[2];
+  if (pipe(fd) != 0) return -1;
+  pid_t pid = fork();
+  if (pid < 0) { close(fd[0]); close(fd[1]); return -1; }
+  if (pid == 0) {
+    dup2(fd[1], STDOUT_FILENO);
+    dup2(fd[1], STDERR_FILENO);
+    close(fd[0]);
+    close(fd[1]);
+    execvp(av[0], (char *const *)av);
+    _exit(127);
+  }
+  close(fd[1]);
+  size_t n = 0;
+  ssize_t r;
+  char buf[512];
+  while ((r = read(fd[0], buf, sizeof buf)) > 0) {
+    size_t take = (size_t)r;
+    if (n + take >= cap) take = cap - 1 - n;
+    memcpy(out + n, buf, take);
+    n += take;
+    if (n + 1 >= cap) break;
+  }
+  close(fd[0]);
+  out[n] = 0;
+  int st = 0;
+  while (waitpid(pid, &st, 0) < 0) {}
+  return (WIFEXITED(st) && WEXITSTATUS(st) == 0) ? 0 : -1;
+}

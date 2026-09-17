@@ -20,11 +20,13 @@ int rufux_create_persist(const char *dir, const char *label, unsigned long size_
     return 0;
   }
   const char *a1[] = {"truncate", "-s", sz, path, NULL};
-  if (rufux_run(a1, 0) != 0) { snprintf(err, cap, "truncate failed"); return -1; }
   char lab[256];
   snprintf(lab, sizeof lab, "%s", label);
   const char *a2[] = {"mkfs.ext4", "-F", "-L", lab, path, NULL};
+  // Check prerequisites before creating anything (no stray files).
+  if (!rufux_have("truncate")) { snprintf(err, cap, "truncate missing"); return -1; }
   if (!rufux_have("mkfs.ext4")) { snprintf(err, cap, "mkfs.ext4 missing"); return -1; }
+  if (rufux_run(a1, 0) != 0) { snprintf(err, cap, "truncate failed"); return -1; }
   if (rufux_run(a2, 0) != 0) { snprintf(err, cap, "mkfs.ext4 persist failed"); return -1; }
   return 0;
 }

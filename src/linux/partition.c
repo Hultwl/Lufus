@@ -83,10 +83,14 @@ int rufux_partition(const char *dst, const RufuxPartOpts *o,
     rc = (WIFEXITED(st) && WEXITSTATUS(st) == 0) ? 0 : -1;
   }
   unlink(tmpl);
-  // best-effort rescan
+  // Tell the kernel to rescan (best effort; failures are non-fatal).
+  // NOTE: dry_run here is 0 = really run. A previous revision passed 1
+  // (log-only), which left standalone `partition` with a stale table.
   {
     const char *pa[] = {"partprobe", dst, NULL};
-    if (rufux_have("partprobe")) rufux_run(pa, 1 /*dry: just log, ignore*/);
+    if (rufux_have("partprobe")) rufux_run(pa, 0);
+    const char *us[] = {"udevadm", "settle", NULL};
+    if (rufux_have("udevadm")) rufux_run(us, 0);
   }
   if (rc != 0) snprintf(err, cap, "sfdisk failed on '%s'", dst);
   return rc;

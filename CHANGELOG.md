@@ -1,6 +1,25 @@
 # Changelog
 
-## 1.1.2
+## 1.1.3 (reviewer batch)
+
+- Partition rescan actually runs (was log-only): standalone
+  `partition` rescans via partprobe + udevadm settle.
+- Honest UEFI validation message: header/subsystem check only,
+  no signature verified.
+- Per-filesystem label limits everywhere (vfat 11, exfat 15,
+  ext 16, ntfs/udf 32): GUI truncates, CLI fails fast.
+- Flatpak: block devices refused up front with directions
+  (no host pkexec path); scope documented in packaging/README.
+- Version drift guard: tests/test_packaging.sh asserts CMake,
+  PKGBUILD, Flatpak manifest, and CHANGELOG agree.
+- No more shell-outs: udisksctl via fork+execvp capture,
+  du via nftw, curl/bootctl via shared rufux_capture helper.
+- SHA-256 now OpenSSL EVP (hand-rolled implementation deleted);
+  build requires libcrypto.
+- El Torito parsed structurally (catalog validation-entry
+  platform id) instead of byte-scanning for 0xEF.
+- mkfs argv on stack (reentrant); persist checks tools before
+  truncating; badblocks labeled a read-only surface scan.
 
 - UI stays alive during burns: worker pipes drain non-blocking
   (previously the window froze through long silent phases).

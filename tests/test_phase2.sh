@@ -93,5 +93,18 @@ else
   bad "vfat >4GiB refused"
 fi
 
+# 9. over-long labels refused before any work (vfat 11, exfat 15, ext 16)
+LONG="ThisLabelIsDefinitelyWayTooLongForAnyFilesystem"
+if "$RUFUX" format "$F32" --fs vfat --label "$LONG" --real --allow-file --yes >/dev/null 2>&1; then
+  bad "vfat long label refused"
+else
+  ok "vfat long label refused"
+fi
+if "$RUFUX" format "$FX" --fs exfat --label "SixteenCharsLong!" --real --allow-file --yes >/dev/null 2>&1; then
+  bad "exfat long label refused"
+else
+  ok "exfat long label refused"
+fi
+
 echo "--- $pass passed, $fail failed ---"
 [ "$fail" -eq 0 ]

@@ -35,6 +35,28 @@ if "$RUFUX" probe "$FAKE" | grep -q RUFUX_TEST; then ok "probe label"; else bad 
 if "$RUFUX" probe "$FAKE" --detail | grep -q 'bootable: yes'; then ok "probe bootable"; else bad "probe bootable"; fi
 if "$RUFUX" probe "$TMP/missing.iso" >/dev/null 2>&1; then bad "probe missing should fail"; else ok "probe missing fails"; fi
 
+# 2b. EFI platform id from the El Torito catalog validation entry
+# (structural parse; a stray 0xEF byte elsewhere must not trigger it)
+python3 - "$TMP/efi.iso" "$TMP/noefi.iso" <<'EOF'
+import sys, struct
+for p, plat in ((sys.argv[1], 0xEF), (sys.argv[2], 0x00)):
+    size = 24*2048
+    b = bytearray(size)
+    b[16*2048+0] = 1
+    b[16*2048+1:16*2048+6] = b'CD001'
+    b[16*2048+40:16*2048+44] = b'EFI1'
+    b[16*2048+100] = 0xEF  # poison: must not count as EFI
+    b[17*2048+0] = 0
+    b[17*2048+1:17*2048+6] = b'CD001'
+    b[17*2048+7:17*2048+30] = b'EL TORITO SPECIFICATION'
+    struct.pack_into('<I', b, 17*2048+0x47, 20)  # catalog at sector 20
+    b[20*2048+0] = 0x01  # validation entry header
+    b[20*2048+1] = plat  # platform id
+    open(p, 'wb').write(b)
+EOF
+if "$RUFUX" probe "$TMP/efi.iso" --detail | grep -q 'efi_hint: yes'; then ok "probe efi platform"; else bad "probe efi platform"; fi
+if "$RUFUX" probe "$TMP/noefi.iso" --detail | grep -q 'efi_hint: no'; then ok "probe non-efi ignored"; else bad "probe non-efi ignored"; fi
+
 # 3. checksum matches sha256sum
 if [ "$(sha256sum "$FAKE" | cut -d' ' -f1)" = "$("$RUFUX" checksum "$FAKE" | cut -d' ' -f1)" ]; then
   ok "checksum matches sha256sum"

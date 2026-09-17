@@ -30,15 +30,24 @@ int rufux_probe_iso_detail(const char *path, RufuxIsoInfo *info) {
     for (int i = 31; i >= 0 && (label[i] == ' ' || label[i] == 0); i--) label[i] = 0;
     snprintf(info->label, sizeof info->label, "%s", label);
   }
-  // Boot record at sector 17: "CD001", type 0, id "EL TORITO SPECIFICATION"
+  // Boot record at sector 17: "CD001", type 0, id "EL TORITO SPECIFICATION".
+  // Boot catalog pointer is a little-endian u32 at offset 0x47.
   if (fseek(f, 17 * 2048, SEEK_SET) == 0 &&
       fread(sec, 1, sizeof sec, f) == sizeof sec) {
     if (sec[0] == 0 && !memcmp(sec + 1, "CD001", 5) &&
         !memcmp(sec + 7, "EL TORITO SPECIFICATION", 23)) {
       info->bootable = 1;
-      // crude EFI hint: scan first 512B of boot catalog area for 0xEF platform id
-      for (int i = 0; i < (int)sizeof sec - 4; i++) {
-        if (sec[i] == 0xEF) { info->has_efi = 1; break; }
+      // Catalog validation entry: byte0 == 0x01 (header), byte1 ==
+      // platform id (0x00 x86, 0x01 PPC, 0x02 Mac, 0xEF EFI).
+      unsigned long cat_lba = (unsigned long)sec[0x47] |
+                              ((unsigned long)sec[0x48] << 8) |
+                              ((unsigned long)sec[0x49] << 16) |
+                              ((unsigned long)sec[0x4A] << 24);
+      unsigned long long cat_off = cat_lba * 2048ULL;
+      if (cat_lba > 0 && cat_off + 32 <= info->size_bytes &&
+          fseek(f, (long)cat_off, SEEK_SET) == 0 &&
+          fread(sec, 1, 32, f) == 32) {
+        if (sec[0] == 0x01 && sec[1] == 0xEF) info->has_efi = 1;
       }
     }
   }

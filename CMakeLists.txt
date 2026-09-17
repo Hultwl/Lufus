@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Rufux VERSION 1.1.2 LANGUAGES C)
+project(Rufux VERSION 1.1.3 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -11,6 +11,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK4 "gtk4>=4.10")
 pkg_check_modules(UDEV libudev)
 pkg_check_modules(BLKID blkid)
+pkg_check_modules(CRYPTO REQUIRED libcrypto)
 
 option(RUFUX_NLS "Native language support (gettext)" ON)
 if(RUFUX_NLS)
@@ -73,6 +74,12 @@ if(RUFUX_NLS AND Intl_FOUND)
   find_program(MSGFMT msgfmt)
 endif()
 
+# OpenSSL for SHA-256 (checksum.c). Required, not optional: no fallback
+# crypto implementations are kept in-tree.
+target_include_directories(rufux PRIVATE ${CRYPTO_INCLUDE_DIRS})
+target_link_directories(rufux PRIVATE ${CRYPTO_LIBRARY_DIRS})
+target_link_libraries(rufux PRIVATE ${CRYPTO_LIBRARIES})
+
 install(TARGETS rufux DESTINATION bin)
 install(FILES doc/rufux.1 DESTINATION share/man/man1)
 install(FILES res/linux/io.github.hultwl.rufux.desktop DESTINATION share/applications)
@@ -88,3 +95,4 @@ enable_testing()
 add_test(NAME phase1 COMMAND bash ${CMAKE_SOURCE_DIR}/tests/test_phase1.sh $<TARGET_FILE:rufux>)
 add_test(NAME phase2 COMMAND bash ${CMAKE_SOURCE_DIR}/tests/test_phase2.sh $<TARGET_FILE:rufux>)
 add_test(NAME phase3 COMMAND bash ${CMAKE_SOURCE_DIR}/tests/test_phase3.sh $<TARGET_FILE:rufux>)
+add_test(NAME packaging COMMAND bash ${CMAKE_SOURCE_DIR}/tests/test_packaging.sh)

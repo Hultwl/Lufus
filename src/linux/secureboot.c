@@ -1,4 +1,6 @@
+#define _GNU_SOURCE
 #include "secureboot.h"
+#include "exec.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
@@ -33,17 +35,20 @@ RufuxSbState rufux_sb_state(void) {
       return RUFUX_SB_DISABLED;
     return RUFUX_SB_ENABLED;
   }
-  // fallback: bootctl (systemd)
-  FILE *p = popen("bootctl status 2>/dev/null | grep -i 'Secure Boot'", "r");
-  if (p) {
-    char line[256] = {0};
-    int found = 0;
-    while (fgets(line, sizeof line, p)) { found = 1; break; }
-    int rc = pclose(p);
-    (void)rc;
-    if (found) {
-      if (strstr(line, "enabled")) return RUFUX_SB_ENABLED;
-      if (strstr(line, "disabled")) return RUFUX_SB_DISABLED;
+  // fallback: bootctl (systemd), lines matched in C (no shell pipe)
+  if (rufux_have("bootctl")) {
+    const char *av[] = {"bootctl", "status", NULL};
+    char out[4096] = {0};
+    if (rufux_capture(av, out, sizeof out) == 0) {
+      char *save = NULL, *line = strtok_r(out, "\n", &save);
+      while (line) {
+        if (strcasestr(line, "secure boot")) {
+          if (strstr(line, "enabled")) return RUFUX_SB_ENABLED;
+          if (strstr(line, "disabled")) return RUFUX_SB_DISABLED;
+          break;
+        }
+        line = strtok_r(NULL, "\n", &save);
+      }
     }
   }
   return RUFUX_SB_UNKNOWN;

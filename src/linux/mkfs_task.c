@@ -8,6 +8,18 @@ int rufux_format(const char *dst, const RufuxMkfsOpts *o,
                  char *err, unsigned long cap) {
   if (!o->fs || (!strcmp(o->fs, "") )) { snprintf(err, cap, "need --fs"); return -1; }
   if (!o->dry_run && !o->yes) { snprintf(err, cap, "refusing real format without --yes"); return -1; }
+  // Fail fast on over-long labels (vfat 11, exfat 15, ext 16, ntfs/udf 32)
+  // instead of partitioning first and dying in mkfs.
+  if (o->label && o->label[0]) {
+    size_t max = 32;
+    if (!strcmp(o->fs, "vfat") || !strcmp(o->fs, "fat32")) max = 11;
+    else if (!strcmp(o->fs, "exfat")) max = 15;
+    else if (!strcmp(o->fs, "ext4") || !strcmp(o->fs, "ext2") || !strcmp(o->fs, "ext3")) max = 16;
+    if (strlen(o->label) > max) {
+      snprintf(err, cap, "label '%s' too long for %s (max %zu chars)", o->label, o->fs, max);
+      return -1;
+    }
+  }
   if (rufux_check_target(dst, o->allow_fixed, o->allow_file, err, cap) != 0) return -1;
 
   const char *argv_vfat[] = {"mkfs.vfat", "-F", "32", NULL, NULL, NULL};
@@ -17,9 +29,9 @@ int rufux_format(const char *dst, const RufuxMkfsOpts *o,
   const char *argv_udf[] = {"mkfs.udf", NULL, NULL};
   const char **av = NULL;
 
-  // build argv with optional label + target (static buffers, small)
-  static char lab_vfat[160], lab_ntfs[160], lab_exfat[160], lab_ext4[160], sec_vfat[32];
-  static const char *a_vfat[9], *a_ntfs[7], *a_exfat[5], *a_ext4[7], *a_udf[4];
+  // Function-local argv buffers (reentrant; no shared static state).
+  char lab_vfat[160], lab_ntfs[160], lab_exfat[160], lab_ext4[160], sec_vfat[32];
+  const char *a_vfat[9], *a_ntfs[7], *a_exfat[5], *a_ext4[7], *a_udf[4];
   if (!strcmp(o->fs, "vfat") || !strcmp(o->fs, "fat32")) {
     if (!rufux_have("mkfs.vfat")) { snprintf(err, cap, "mkfs.vfat missing"); return -1; }
     int i = 0;

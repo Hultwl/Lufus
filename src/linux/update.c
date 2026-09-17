@@ -9,15 +9,13 @@ int rufux_update_check(const char *current_version, char *latest_out,
     snprintf(err, errcap, "curl not found, cannot check for updates");
     return -1;
   }
-  FILE *p = popen("curl -sL --max-time 15 -H \"User-Agent: rufux\" "
-                  "-H \"Accept: application/vnd.github+json\" "
-                  "https://api.github.com/repos/Hultwl/Rufux/releases/latest 2>/dev/null", "r");
-  if (!p) { snprintf(err, errcap, "cannot run curl"); return -1; }
+  const char *av[] = {"curl", "-sL", "--max-time", "15",
+                      "-H", "User-Agent: rufux",
+                      "-H", "Accept: application/vnd.github+json",
+                      "https://api.github.com/repos/Hultwl/Rufux/releases/latest",
+                      NULL};
   char buf[8192] = {0};
-  size_t n = fread(buf, 1, sizeof buf - 1, p);
-  (void)n;
-  int rc = pclose(p);
-  if (rc != 0 || !buf[0]) {
+  if (rufux_capture(av, buf, sizeof buf) != 0 || !buf[0]) {
     snprintf(err, errcap, "network unavailable (offline?)");
     return -1;
   }

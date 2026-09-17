@@ -30,8 +30,12 @@ flatpak-builder --install build-dir packaging/io.github.hultwl.rufux.json
 flatpak run io.github.hultwl.rufux --gui
 ```
 
-Note: raw block-device access from Flatpak needs `--device=all`
-(which the manifest requests) plus host-side udisks2/polkit.
+Scope (honest): probing/checksum/extract-to-directory work, but raw
+block-device writes are refused inside the sandbox — there is no host
+`pkexec` path and no device access worth having, so the app fails fast
+with directions instead of obscure errors. Full functionality needs the
+AppImage or a native package. (A future udisks2 D-Bus backend could lift
+this; tracked, not started.)
 
 ## From source (any distro)
 
@@ -42,6 +46,6 @@ ctest --test-dir build
 sudo cmake --install build
 ```
 
-Runtime deps: `gtk4`, `udisks2`, `util-linux` (sfdisk),
+Runtime deps: `gtk4`, `udisks2`, `util-linux` (sfdisk), `openssl`,
 `dosfstools`, `ntfsprogs`, `exfatprogs`, `e2fsprogs`,
 `libarchive` (bsdtar) or `p7zip`, `syslinux`, `curl`.

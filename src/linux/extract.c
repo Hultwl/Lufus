@@ -1,24 +1,32 @@
+#define _GNU_SOURCE
 #include "extract.h"
 #include "exec.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <ftw.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <errno.h>
 
-// Directory size in bytes (for extraction progress polling).
+// Directory content size in bytes (extraction progress polling).
+// Pure libc via nftw: no du subprocess, no shell.
+static unsigned long long du_acc;
+static int du_cb(const char *path, const struct stat *sb, int type, struct FTW *ftw) {
+  (void)path; (void)ftw;
+  if (type == FTW_F) du_acc += (unsigned long long)sb->st_size;
+  return 0;
+}
+
 static unsigned long long dir_size(const char *path) {
-  char cmd[1152];
-  snprintf(cmd, sizeof cmd, "du -sb --apparent-size '%s' 2>/dev/null", path);
-  FILE *p = popen(cmd, "r");
-  if (!p) return 0;
-  unsigned long long n = 0;
-  if (fscanf(p, "%llu", &n) != 1) n = 0;
-  pclose(p);
-  return n;
+  du_acc = 0;
+  struct stat st;
+  if (stat(path, &st) != 0) return 0;
+  if (!S_ISDIR(st.st_mode)) return (unsigned long long)st.st_size;
+  nftw(path, du_cb, 16, FTW_PHYS);
+  return du_acc;
 }
 
 // Run extractor in a child while the parent polls destination growth.

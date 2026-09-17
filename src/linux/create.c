@@ -291,7 +291,9 @@ static int flow_extract_disk(const char *src, const char *dst, const RufuxCreate
       unsigned sub = 0;
       char verr[256] = {0};
       if (rufux_validate_efi(efi, &sub, verr, sizeof verr) == 0) {
-        if (log) log("UEFI media validation: bootloader OK (Secure Boot compatible signature check passed).", luser);
+        // Honest wording: this parses the PE header and checks the EFI
+        // subsystem id only. No Authenticode/db/dbx signature is verified.
+        if (log) log("UEFI media validation: EFI executable header OK (subsystem check only; no signature verified).", luser);
       } else {
         snprintf(m, sizeof m, "UEFI media validation warning: %s", verr);
         if (log) log(m, luser);

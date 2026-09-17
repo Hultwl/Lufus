@@ -12,6 +12,7 @@ pkgbase = rufux-git
 	makedepends = gettext
 	depends = gtk4
 	depends = hicolor-icon-theme
+	depends = openssl
 	depends = udisks2
 	depends = util-linux
 	optdepends = dosfstools: FAT32 formatting (mkfs.vfat)

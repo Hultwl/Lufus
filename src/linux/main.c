@@ -275,7 +275,7 @@ int main(int argc, char **argv) {
       fprintf(stderr, "badblocks failed: %s\n", err);
       return 3;
     }
-    printf("badblocks: %llu bad regions (0 = clean)\n", bad);
+    printf("badblocks: %llu bad regions (0 = clean; read-only surface scan)\n", bad);
     return bad == 0 ? 0 : 4;
   }
   if ((argc >= 3 && !strcmp(argv[1], "mount")) ||

@@ -217,9 +217,18 @@ static void on_image_changed(GtkDropDown *d, gpointer u) {
   update_sensitivities();
 }
 
+// Volume-label limits are per filesystem, not just FAT vs rest:
+// vfat 11, exfat 15, ext2/3/4 16, ntfs/udf 32 (uppercased, like Rufus).
+static size_t label_limit(const char *fs) {
+  if (!strcmp(fs, "vfat") || !strcmp(fs, "fat32")) return 11;
+  if (!strcmp(fs, "exfat")) return 15;
+  if (!strcmp(fs, "ext4") || !strcmp(fs, "ext2") || !strcmp(fs, "ext3")) return 16;
+  return 32;
+}
+
 static void sanitize_label(const char *in, const char *fs, char *out, size_t cap) {
   size_t n = 0;
-  size_t max = (!strcmp(fs, "vfat")) ? 11 : 32;
+  size_t max = label_limit(fs);
   for (size_t i = 0; in[i] && n + 1 < cap && n < max; i++) {
     char c = in[i];
     if (c == ' ') c = '_';
