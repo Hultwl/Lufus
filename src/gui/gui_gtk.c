@@ -699,15 +699,25 @@ static void apply_system_theme(void) {
       if (!ret) { g_clear_error(&e); continue; }
       GVariant *inner = NULL;
       g_variant_get(ret, "(v)", &inner);
-      if (inner) {
-        guint32 scheme = g_variant_get_uint32(inner);
+      // The payload may itself be a variant wrapping the uint32.
+      GVariant *val = inner;
+      GVariant *unwrapped = NULL;
+      if (val && g_variant_is_of_type(val, G_VARIANT_TYPE_VARIANT)) {
+        unwrapped = g_variant_get_variant(val);
+        val = unwrapped;
+      }
+      if (val && g_variant_is_of_type(val, G_VARIANT_TYPE_UINT32)) {
+        guint32 scheme = g_variant_get_uint32(val);
         g_object_set(st, "gtk-application-prefer-dark-theme",
                      (scheme == 1 || scheme == 2) ? TRUE : FALSE, NULL);
+        if (unwrapped) g_variant_unref(unwrapped);
         g_variant_unref(inner);
         g_variant_unref(ret);
         g_object_unref(bus);
         return; // portal answered: done
       }
+      if (unwrapped) g_variant_unref(unwrapped);
+      if (inner) g_variant_unref(inner);
       g_variant_unref(ret);
     }
     g_object_unref(bus);

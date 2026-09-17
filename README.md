@@ -21,6 +21,10 @@
   <a href="https://github.com/Hultwl/Rufux/releases/latest/download/Rufux-x86_64.AppImage"><strong>⬇ Download AppImage</strong></a>
 </p>
 
+<p align="center">
+  <img src="screenshots/rufux-main.png" width="520" alt="Rufux main window">
+</p>
+
 ---
 
 ## ✨ Features
