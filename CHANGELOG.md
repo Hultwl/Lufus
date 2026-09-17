@@ -3,8 +3,12 @@
 ## 1.0
 
 - Consolidated stable release: everything below in one cut.
-- AppImage attached to the release (built by CI on Ubuntu 22.04).
+- AppImage attached to the release (built by CI on Ubuntu 24.04).
 - Bare `rufux` with a display opens the GUI (app-grid friendly).
+- Root escalation that works from AppImages: resolve the real
+  executable (readlink, not /proc/self/exe through env) and
+  re-run the $APPIMAGE file itself (FUSE mounts are user-private,
+  root gets EACCES inside them).
 
 ## v1.0.3
 

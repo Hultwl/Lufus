@@ -17,10 +17,12 @@ int rufux_need_root_for_block(const char *path, char *err, unsigned long cap) {
 }
 
 // Display-session vars the root GUI needs to reach the user's screen.
+// APPIMAGE is essential: re-running the AppImage file (not the FUSE-
+// mounted inner binary, which root cannot touch) re-mounts as root.
 static const char *keep_env[] = {
   "DISPLAY", "WAYLAND_DISPLAY", "XDG_RUNTIME_DIR", "XAUTHORITY",
   "XDG_CURRENT_DESKTOP", "XDG_SESSION_TYPE", "DBUS_SESSION_BUS_ADDRESS",
-  NULL,
+  "APPIMAGE", NULL,
 };
 
 void rufux_escalate_gui(int argc, char **argv) {
@@ -29,9 +31,19 @@ void rufux_escalate_gui(int argc, char **argv) {
   // Resolve OUR executable now: passing "/proc/self/exe" through
   // pkexec+env would resolve it in env's process (i.e. env itself,
   // which then just prints the environment and exits --empty window).
+  // Inside an AppImage, prefer $APPIMAGE itself: the FUSE mount holding
+  // the inner binary is private to the mounting user, so root gets
+  // EACCES on it -- re-running the AppImage file re-mounts as root.
   char exe[1024] = {0};
-  ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
-  const char *self = (n > 0) ? exe : argv[0];
+  const char *self = NULL;
+  const char *ai = getenv("APPIMAGE");
+  if (ai && ai[0] && access(ai, X_OK) == 0) {
+    snprintf(exe, sizeof exe, "%s", ai);
+    self = exe;
+  } else {
+    ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    self = (n > 0) ? exe : argv[0];
+  }
   // Re-exec: pkexec env VAR=val ... <self> <orig args>
   char *exec_argv[64];
   int k = 0;
