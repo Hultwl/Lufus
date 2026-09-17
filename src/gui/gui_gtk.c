@@ -1,10 +1,12 @@
-// Lufus GTK4 GUI — Phase 2: device/ISO + mode/scheme/fs + dry-run Start.
+// Lufus GTK4 GUI — Phase 3 stable.
 #include "gui_gtk.h"
 #include "../linux/device.h"
 #include "../linux/iso_probe.h"
 #include "../linux/checksum.h"
 #include "../linux/writer.h"
 #include "../linux/extract.h"
+#include "../linux/secureboot.h"
+#include "../linux/i18n.h"
 
 #ifdef HAVE_GTK
 #include <gtk/gtk.h>
@@ -19,6 +21,8 @@ static GtkWidget *scheme_drop;
 static GtkWidget *fs_drop;
 static GtkWidget *progress;
 static GtkWidget *sum_label;
+static GtkWidget *sb_label;
+static int opt_dark = -1; // -1 system, 0 light, 1 dark
 static char sel_iso[1024] = {0};
 static LufusDevice devs_cache[64];
 static int devs_n = 0;
@@ -45,7 +49,7 @@ static void on_refresh(GtkButton *btn, gpointer u) {
     gtk_string_list_append(sl, tmp);
   }
   if (devs_n == 0)
-    gtk_string_list_append(sl, "(no removable devices — insert USB)");
+    gtk_string_list_append(sl, _("(no removable devices — insert USB)"));
   gtk_drop_down_set_model(GTK_DROP_DOWN(dev_drop), G_LIST_MODEL(sl));
   snprintf(tmp, sizeof tmp, "Found %d removable device(s).", devs_n);
   gui_log(tmp);
@@ -83,7 +87,7 @@ static void on_iso_response(GtkNativeDialog *d, int r, gpointer w) {
             gtk_label_set_text(GTK_LABEL(sum_label), "SHA-256: (error)");
           }
         } else {
-          gtk_label_set_text(GTK_LABEL(sum_label), "SHA-256: (large file — use CLI)");
+          gtk_label_set_text(GTK_LABEL(sum_label), _("SHA-256: (large file — use CLI)"));
         }
       } else {
         gui_log("Cannot probe selected file.");
@@ -124,10 +128,10 @@ static const char *drop_text(GtkWidget *drop, const char *fallback) {
 
 static void on_start(GtkButton *b, gpointer u) {
   (void)b; (void)u;
-  if (!sel_iso[0]) { gui_log("Select an ISO first."); return; }
-  if (devs_n == 0) { gui_log("No removable device. Insert USB and Refresh."); return; }
+  if (!sel_iso[0]) { gui_log(_("Select an ISO first.")); return; }
+  if (devs_n == 0) { gui_log(_("No removable device. Insert USB and Refresh.")); return; }
   guint sel = gtk_drop_down_get_selected(GTK_DROP_DOWN(dev_drop));
-  if (sel >= (guint)devs_n) { gui_log("Select a device first."); return; }
+  if (sel >= (guint)devs_n) { gui_log(_("Select a device first.")); return; }
   const char *dst = devs_cache[sel].devnode;
   const char *mode = drop_text(mode_drop, "dd");
   const char *scheme = drop_text(scheme_drop, "gpt");
@@ -180,8 +184,12 @@ static void on_start(GtkButton *b, gpointer u) {
 static void activate(GtkApplication *app, gpointer u) {
   (void)u;
   GtkWidget *win = gtk_application_window_new(app);
-  gtk_window_set_title(GTK_WINDOW(win), "Lufus — USB Creator (Linux, Phase 2)");
-  gtk_window_set_default_size(GTK_WINDOW(win), 600, 540);
+  gtk_window_set_title(GTK_WINDOW(win), _("Lufus — USB Creator (Linux)"));
+  gtk_window_set_default_size(GTK_WINDOW(win), 600, 570);
+  if (opt_dark >= 0) {
+    GtkSettings *st = gtk_settings_get_default();
+    if (st) g_object_set(st, "gtk-application-prefer-dark-theme", opt_dark ? TRUE : FALSE, NULL);
+  }
   GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
   gtk_widget_set_margin_top(box, 12); gtk_widget_set_margin_bottom(box, 12);
   gtk_widget_set_margin_start(box, 12); gtk_widget_set_margin_end(box, 12);
@@ -190,19 +198,25 @@ static void activate(GtkApplication *app, gpointer u) {
   GtkWidget *dev_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   dev_drop = gtk_drop_down_new(NULL, NULL);
   gtk_widget_set_hexpand(dev_drop, TRUE);
-  GtkWidget *ref = gtk_button_new_with_label("Refresh");
+  GtkWidget *ref = gtk_button_new_with_label(_("Refresh"));
   g_signal_connect(ref, "clicked", G_CALLBACK(on_refresh), NULL);
   gtk_box_append(GTK_BOX(dev_row), dev_drop);
   gtk_box_append(GTK_BOX(dev_row), ref);
   gtk_box_append(GTK_BOX(box), dev_row);
 
-  GtkWidget *iso_btn = gtk_button_new_with_label("Select ISO / IMG…");
+  GtkWidget *iso_btn = gtk_button_new_with_label(_("Select ISO / IMG…"));
   g_signal_connect(iso_btn, "clicked", G_CALLBACK(on_iso), win);
   gtk_box_append(GTK_BOX(box), iso_btn);
 
-  sum_label = gtk_label_new("SHA-256: (no ISO)");
+  sum_label = gtk_label_new(_("SHA-256: (no ISO)"));
   gtk_label_set_xalign(GTK_LABEL(sum_label), 0.0f);
   gtk_box_append(GTK_BOX(box), sum_label);
+
+  char sb_txt[128];
+  snprintf(sb_txt, sizeof sb_txt, "Secure Boot: %s", lufus_sb_string(lufus_sb_state()));
+  sb_label = gtk_label_new(sb_txt);
+  gtk_label_set_xalign(GTK_LABEL(sb_label), 0.0f);
+  gtk_box_append(GTK_BOX(box), sb_label);
 
   GtkWidget *opt_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
   const char *modes[] = {"dd — direct image", "extract — UEFI files", NULL};
@@ -227,19 +241,34 @@ static void activate(GtkApplication *app, gpointer u) {
   gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), log_view);
   gtk_box_append(GTK_BOX(box), scroll);
 
-  GtkWidget *start = gtk_button_new_with_label("Start (dry-run, safe)");
+  GtkWidget *start = gtk_button_new_with_label(_("Start (dry-run, safe)"));
   g_signal_connect(start, "clicked", G_CALLBACK(on_start), NULL);
   gtk_box_append(GTK_BOX(box), start);
 
   gtk_window_present(GTK_WINDOW(win));
   on_refresh(NULL, NULL);
-  gui_log("Lufus Phase 2 ready. Real block flows: CLI 'create' with --real --yes.");
+  gui_log("Lufus stable ready. Real block flows: CLI 'create' with --real --yes.");
 }
 
 int lufus_gui_run(int argc, char **argv) {
+  // strip our --theme option before GTK parses argv
+  const char *theme = getenv("LUFUS_THEME");
+  char *filtered[128];
+  int nf = 0;
+  filtered[nf++] = argv[0];
+  for (int i = 1; i < argc && nf < 127; i++) {
+    if (!strcmp(argv[i], "--theme") && i + 1 < argc) { theme = argv[++i]; continue; }
+    if (!strncmp(argv[i], "--theme=", 8)) { theme = argv[i] + 8; continue; }
+    filtered[nf++] = argv[i];
+  }
+  if (theme) {
+    if (!strcmp(theme, "dark")) opt_dark = 1;
+    else if (!strcmp(theme, "light")) opt_dark = 0;
+  }
+  lufus_i18n_init();
   GtkApplication *app = gtk_application_new("io.github.hultwl.lufus", G_APPLICATION_DEFAULT_FLAGS);
   g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
-  int st = g_application_run(G_APPLICATION(app), argc, argv);
+  int st = g_application_run(G_APPLICATION(app), nf, filtered);
   g_object_unref(app);
   return st;
 }

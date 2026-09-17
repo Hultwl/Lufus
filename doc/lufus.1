@@ -1,0 +1,81 @@
+.TH LUFUS 1 "September 2026" "Lufus 1.0.0" "User Commands"
+.SH NAME
+lufus \- bootable USB creator for Linux (Rufus port)
+.SH SYNOPSIS
+.B lufus
+\fIlist\fR [\-\-json] [\-\-allow\-fixed]
+.br
+.B lufus
+\fIprobe\fR \fIFILE\fR [\-\-detail]
+.br
+.B lufus
+\fIchecksum\fR \fIFILE\fR
+.br
+.B lufus
+\fIwrite\fR \fISRC DST\fR [\-\-dry\-run|\-\-real] [\-\-verify] [\-\-allow\-fixed] [\-\-allow\-file] [\-\-yes]
+.br
+.B lufus
+\fIpartition\fR \fIDST\fR \-\-scheme gpt|dos \-\-layout single|esp+main [\-\-real] [\-\-yes] ...
+.br
+.B lufus
+\fIformat\fR \fIDST\fR \-\-fs vfat|ntfs|exfat|ext4|udf [\-\-label \fIL\fR] [\-\-real] [\-\-yes] ...
+.br
+.B lufus
+\fIextract\fR \fISRC\fR \fIDEST_DIR\fR [\-\-dry\-run]
+.br
+.B lufus
+\fIinstall\-boot\fR \fIDST\fR \-\-mbr bios|gpt [\-\-real] [\-\-yes] ...
+.br
+.B lufus
+\fIpersist\fR \fIDIR\fR \-\-size \fIMB\fR [\-\-label \fIL\fR] [\-\-dry\-run]
+.br
+.B lufus
+\fIbadblocks\fR \fIDST\fR [\-\-allow\-file]
+.br
+.B lufus
+\fImount\fR|\fIumount\fR \fIDEV\fR [\-\-dry\-run]
+.br
+.B lufus
+\fIsecureboot\-status\fR
+.br
+.B lufus
+\fIvalidate\-efi\fR \fIFILE\fR
+.br
+.B lufus
+\fIupdate\-check\fR
+.br
+.B lufus
+\fIcreate\fR \fISRC DST\fR \-\-mode dd|extract [\-\-scheme \fIS\fR] [\-\-fs \fIF\fR] [\-\-persist\-mb \fIN\fR] ...
+.br
+.B lufus
+\fI\-\-gui\fR [\-\-theme system|dark|light]
+.SH DESCRIPTION
+Lufus creates bootable USB drives on Linux. Destructive commands default to
+\fB\-\-dry\-run\fR planning; real block-device writes need \fB\-\-real \-\-yes\fR
+and root (sudo/pkexec).
+.SH EXAMPLES
+List removable drives:
+.PP
+.RS
+lufus list
+.RE
+.PP
+Write an image (dry\-run first, then real with verify):
+.PP
+.RS
+lufus write linux.iso /dev/sdb --dry\-run
+.br
+sudo lufus write linux.iso /dev/sdb --real --verify --yes
+.RE
+.PP
+UEFI file flow with auto-mount (Phase 3):
+.PP
+.RS
+sudo lufus create linux.iso /dev/sdb --mode extract --scheme gpt --fs vfat --yes
+.RE
+.SH "SEE ALSO"
+.BR udisksctl (1),
+.BR sfdisk (8),
+.BR mkfs.vfat (8)
+.SH AUTHOR
+Lufus contributors; upstream Rufus by Pete Batard. GPLv3.

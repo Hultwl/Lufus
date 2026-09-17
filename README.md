@@ -1,25 +1,28 @@
-# Lufus — Rufus for Linux
+# Lufus — Rufus for Linux (stable v1.0.0)
 
 Fork of [pbatard/rufus](https://github.com/pbatard/rufus) (GPLv3), ported to Linux.
 
-Goal: full-featured Linux-native port, including GUI — bootable USB creation, ISO/DD writing, partitioning, filesystems, checksums, persistence.
+Bootable USB creation, ISO/DD writing, partitioning, filesystems, checksums,
+persistence, Secure Boot validation — CLI + GTK4 GUI.
 
-## Status: Phase 2 done (v0.3.0) — see PHASES.md
+## Install
 
-Phase 2 delivers bootable parity: `partition`, `format`,
-`extract`, `install-boot`, `persist`, `badblocks`, `create --mode dd|extract`,
-plus GUI mode/scheme/fs. Phase 3 will be the stable v1.0 release.
-
-## Build (Linux scaffold)
+Arch (AUR): see `packaging/PKGBUILD`. Flatpak: `packaging/io.github.hultwl.lufus.json`.
+From source (`packaging/README.md`):
 
 ```sh
-sudo apt install cmake gcc pkg-config libgtk-4-dev libudev-dev libblkid-dev
-cmake -B build -DCMAKE_BUILD_TYPE=Debug
+cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
-./build/lufus --help
+ctest --test-dir build
+sudo cmake --install build
+lufus --gui
 ```
 
-The scaffold currently enumerates USB block devices via sysfs/udev, probes ISO files, and opens a GTK4 window. Windows backends (`dev.c`, `drive.c`, `format.c`, Win32 UI) are NOT yet replaced — see `PORTING.md`.
+## Status: stable v1.0.0 — see PHASES.md + CHANGELOG.md
+
+Quick check: `./build/lufus list`, `./build/lufus probe file.iso --detail`,
+`./build/lufus --gui`. Destructive commands default to `--dry-run`;
+real block writes need `--real --yes` + root. Details in `PORTING.md`.
 
 ## Origin
 

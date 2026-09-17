@@ -1,0 +1,27 @@
+{
+  "app-id": "io.github.hultwl.lufus",
+  "runtime": "org.gnome.Platform",
+  "runtime-version": "48",
+  "sdk": "org.gnome.Sdk",
+  "command": "lufus",
+  "finish-args": [
+    "--share=ipc",
+    "--socket=fallback-x11",
+    "--socket=wayland",
+    "--device=all"
+  ],
+  "modules": [
+    {
+      "name": "lufus",
+      "buildsystem": "cmake",
+      "config-opts": ["-DCMAKE_BUILD_TYPE=Release"],
+      "sources": [
+        {
+          "type": "git",
+          "url": "https://github.com/Hultwl/Lufus.git",
+          "tag": "v1.0.0"
+        }
+      ]
+    }
+  ]
+}

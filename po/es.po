@@ -1,0 +1,33 @@
+# Spanish translation for Lufus (sample for v1.0 infrastructure).
+msgid ""
+msgstr ""
+"Project-Id-Version: lufus 1.0.0\n"
+"Language: es\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "Refresh"
+msgstr "Actualizar"
+
+msgid "Select ISO / IMG…"
+msgstr "Elegir ISO / IMG…"
+
+msgid "Start (dry-run, safe)"
+msgstr "Iniciar (simulación, sin escritura)"
+
+msgid "SHA-256: (no ISO)"
+msgstr "SHA-256: (sin ISO)"
+
+msgid "Lufus — USB Creator (Linux)"
+msgstr "Lufus — Creador USB (Linux)"
+
+msgid "Select an ISO first."
+msgstr "Elige primero una ISO."
+
+msgid "No removable device. Insert USB and Refresh."
+msgstr "Sin dispositivo extraíble. Conecta un USB y pulsa Actualizar."
+
+msgid "Select a device first."
+msgstr "Elige primero un dispositivo."
+
+msgid "SHA-256: (large file — use CLI)"
+msgstr "SHA-256: (archivo grande — usa el CLI)"

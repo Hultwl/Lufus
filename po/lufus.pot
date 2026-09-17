@@ -1,0 +1,32 @@
+# Lufus translation template.
+msgid ""
+msgstr ""
+"Project-Id-Version: lufus 1.0.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+
+msgid "Refresh"
+msgstr ""
+
+msgid "Select ISO / IMG…"
+msgstr ""
+
+msgid "Start (dry-run, safe)"
+msgstr ""
+
+msgid "SHA-256: (no ISO)"
+msgstr ""
+
+msgid "Lufus — USB Creator (Linux)"
+msgstr ""
+
+msgid "Select an ISO first."
+msgstr ""
+
+msgid "No removable device. Insert USB and Refresh."
+msgstr ""
+
+msgid "Select a device first."
+msgstr ""
+
+msgid "SHA-256: (large file — use CLI)"
+msgstr ""

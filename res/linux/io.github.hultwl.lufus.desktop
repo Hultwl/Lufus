@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=Lufus
+Comment=Bootable USB creator for Linux (Rufus port)
+Exec=lufus --gui
+Icon=io.github.hultwl.lufus
+Terminal=false
+Type=Application
+Categories=System;Utility;
+Keywords=usb;iso;bootable;rufus;
+StartupNotify=true
