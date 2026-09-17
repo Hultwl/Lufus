@@ -251,12 +251,13 @@ static void activate(GtkApplication *app, gpointer u) {
 }
 
 int lufus_gui_run(int argc, char **argv) {
-  // strip our --theme option before GTK parses argv
+  // strip our own options before GTK parses argv
   const char *theme = getenv("LUFUS_THEME");
   char *filtered[128];
   int nf = 0;
   filtered[nf++] = argv[0];
   for (int i = 1; i < argc && nf < 127; i++) {
+    if (!strcmp(argv[i], "--gui") || !strcmp(argv[i], "gui")) continue;
     if (!strcmp(argv[i], "--theme") && i + 1 < argc) { theme = argv[++i]; continue; }
     if (!strncmp(argv[i], "--theme=", 8)) { theme = argv[i] + 8; continue; }
     filtered[nf++] = argv[i];
