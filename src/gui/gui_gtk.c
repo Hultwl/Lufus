@@ -729,6 +729,12 @@ int rufux_gui_run(int argc, char **argv) {
     else if (!strcmp(theme, "light")) opt_dark = 0;
   }
   rufux_i18n_init();
+  if (geteuid() == 0) {
+    // No D-Bus session as root: keep GTK off dconf entirely instead of
+    // spamming "failed to commit changes" warnings. A flashing tool
+    // needs no persisted preferences. Respects an explicit user value.
+    setenv("GSETTINGS_BACKEND", "memory", 0);
+  }
   GtkApplication *app = gtk_application_new("io.github.hultwl.rufux", G_APPLICATION_DEFAULT_FLAGS);
   g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
   int st = g_application_run(G_APPLICATION(app), nf, filtered);
