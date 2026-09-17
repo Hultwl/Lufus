@@ -1,6 +1,11 @@
 # Changelog
 
-## 1.1.1
+## 1.1.2
+
+- UI stays alive during burns: worker pipes drain non-blocking
+  (previously the window froze through long silent phases).
+- Theme follows the desktop via the Settings portal (both
+  namespaces), GTK settings.ini, then COSMIC-dark default.
 
 - Worker stderr now streams into the GUI log (auth failures, refusal
   reasons) plus the worker exit code — failures are never silent.
