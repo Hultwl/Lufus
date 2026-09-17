@@ -8,11 +8,14 @@
 #include <errno.h>
 
 static const char *mbr_path(const char *kind) {
+  // Arch nests BIOS modules under bios/, Debian/Ubuntu flatten them.
   static const char *gpt_c[] = {
     "/usr/lib/syslinux/bios/gptmbr.bin",
+    "/usr/lib/syslinux/gptmbr.bin",
     "/usr/share/syslinux/gptmbr.bin", NULL};
   static const char *bios_c[] = {
     "/usr/lib/syslinux/bios/mbr.bin",
+    "/usr/lib/syslinux/mbr.bin",
     "/usr/share/syslinux/bios/mbr.bin",
     "/usr/share/syslinux/mbr.bin", NULL};
   const char **c = (kind && !strcmp(kind, "gpt")) ? gpt_c : bios_c;
