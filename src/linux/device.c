@@ -72,7 +72,7 @@ static void detect_transport(const char *sysname, const char *devpath_target,
   snprintf(out, cap, "unknown");
 }
 
-void lufus_human_size(unsigned long long bytes, char *out, unsigned long cap) {
+void rufux_human_size(unsigned long long bytes, char *out, unsigned long cap) {
   const char *u[] = {"B", "KB", "MB", "GB", "TB"};
   double v = (double)bytes;
   int i = 0;
@@ -80,7 +80,7 @@ void lufus_human_size(unsigned long long bytes, char *out, unsigned long cap) {
   snprintf(out, cap, "%.2f %s", v, u[i]);
 }
 
-int lufus_list_devices(LufusDevice *out, int max, int include_fixed) {
+int rufux_list_devices(RufuxDevice *out, int max, int include_fixed) {
   DIR *d = opendir("/sys/block");
   if (!d) return -1;
   struct dirent *e;
@@ -96,7 +96,7 @@ int lufus_list_devices(LufusDevice *out, int max, int include_fixed) {
     int removable = (buf[0] == '1');
     if (!removable && !include_fixed) continue;
 
-    LufusDevice *dev = &out[n];
+    RufuxDevice *dev = &out[n];
     memset(dev, 0, sizeof *dev);
     snprintf(dev->sysname, sizeof dev->sysname, "%s", e->d_name);
     snprintf(dev->devnode, sizeof dev->devnode, "/dev/%s", e->d_name);
@@ -133,11 +133,11 @@ int lufus_list_devices(LufusDevice *out, int max, int include_fixed) {
   return n;
 }
 
-void lufus_print_devices(const LufusDevice *devs, int n) {
+void rufux_print_devices(const RufuxDevice *devs, int n) {
   printf("%-10s %-8s %10s  %-6s %-7s %s\n", "NODE", "SYS", "SIZE", "USB", "MOUNTED", "MODEL");
   for (int i = 0; i < n; i++) {
     char hs[32];
-    lufus_human_size(devs[i].size_bytes, hs, sizeof hs);
+    rufux_human_size(devs[i].size_bytes, hs, sizeof hs);
     printf("%-10s %-8s %10s  %-6s %-7s %s %s [%s]\n", devs[i].devnode,
            devs[i].sysname, hs, devs[i].is_usb ? "yes" : "no",
            devs[i].mounted ? "yes" : "no", devs[i].vendor, devs[i].model,
@@ -152,7 +152,7 @@ static void json_escape(FILE *o, const char *s) {
   }
 }
 
-void lufus_print_devices_json(const LufusDevice *devs, int n) {
+void rufux_print_devices_json(const RufuxDevice *devs, int n) {
   printf("[\n");
   for (int i = 0; i < n; i++) {
     printf("  {\"node\":\"%s\",\"sys\":\"%s\",\"size_bytes\":%llu,\"removable\":%s,"
@@ -171,7 +171,7 @@ void lufus_print_devices_json(const LufusDevice *devs, int n) {
   printf("]\n");
 }
 
-int lufus_check_target(const char *path, int allow_fixed, int allow_file,
+int rufux_check_target(const char *path, int allow_fixed, int allow_file,
                        char *err, unsigned long cap) {
   struct stat st;
   if (stat(path, &st) != 0) {

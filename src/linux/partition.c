@@ -10,13 +10,13 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
-void lufus_partition_plan(const char *dst, const LufusPartOpts *o,
+void rufux_partition_plan(const char *dst, const RufuxPartOpts *o,
                           char *out, unsigned long cap) {
   snprintf(out, cap, "partition %s as %s/%s (sfdisk)%s", dst, o->scheme,
            o->layout, o->dry_run ? " [dry-run]" : "");
 }
 
-int lufus_partition(const char *dst, const LufusPartOpts *o,
+int rufux_partition(const char *dst, const RufuxPartOpts *o,
                     char *err, unsigned long cap) {
   if (strcmp(o->scheme, "gpt") && strcmp(o->scheme, "dos") && strcmp(o->scheme, "mbr")) {
     snprintf(err, cap, "scheme must be gpt|dos (mbr alias dos)");
@@ -31,9 +31,9 @@ int lufus_partition(const char *dst, const LufusPartOpts *o,
     snprintf(err, cap, "refusing real partition without --yes");
     return -1;
   }
-  if (lufus_check_target(dst, o->allow_fixed, o->allow_file, err, cap) != 0)
+  if (rufux_check_target(dst, o->allow_fixed, o->allow_file, err, cap) != 0)
     return -1;
-  if (!lufus_have("/usr/bin/sfdisk")) {
+  if (!rufux_have("/usr/bin/sfdisk")) {
     snprintf(err, cap, "sfdisk not found");
     return -1;
   }
@@ -54,7 +54,7 @@ int lufus_partition(const char *dst, const LufusPartOpts *o,
     return 0;
   }
   // write script to temp and run sfdisk < script (no shell)
-  char tmpl[] = "/tmp/lufus-sfdisk-XXXXXX";
+  char tmpl[] = "/tmp/rufux-sfdisk-XXXXXX";
   int fd = mkstemp(tmpl);
   if (fd < 0) { snprintf(err, cap, "mkstemp failed"); return -1; }
   size_t L = strlen(script);
@@ -79,7 +79,7 @@ int lufus_partition(const char *dst, const LufusPartOpts *o,
   // best-effort rescan
   {
     const char *pa[] = {"/usr/bin/partprobe", dst, NULL};
-    if (lufus_have("/usr/bin/partprobe")) lufus_run(pa, 1 /*dry: just log, ignore*/);
+    if (rufux_have("/usr/bin/partprobe")) rufux_run(pa, 1 /*dry: just log, ignore*/);
   }
   if (rc != 0) snprintf(err, cap, "sfdisk failed on '%s'", dst);
   return rc;

@@ -10,10 +10,10 @@
 #include <sys/ioctl.h>
 #include <linux/fs.h>
 
-int lufus_badblocks(const char *path, int allow_file, LufusScanProgress cb, void *user,
+int rufux_badblocks(const char *path, int allow_file, RufuxScanProgress cb, void *user,
                     unsigned long long *bad_out, char *err, unsigned long cap) {
   // safety: blocks must be unmounted/fixed-guarded; files need --allow-file
-  if (lufus_check_target(path, 1 /*scan allows fixed*/, allow_file, err, cap) != 0) return -1;
+  if (rufux_check_target(path, 1 /*scan allows fixed*/, allow_file, err, cap) != 0) return -1;
   struct stat st;
   unsigned long long total = 0;
   int is_reg = (stat(path, &st) == 0 && S_ISREG(st.st_mode));

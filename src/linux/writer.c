@@ -14,9 +14,9 @@
 
 #define CHUNK (1u << 20)
 
-int lufus_write_image(const char *src, const char *dst,
-                      const LufusWriteOpts *opts,
-                      LufusWriteProgress cb, void *user,
+int rufux_write_image(const char *src, const char *dst,
+                      const RufuxWriteOpts *opts,
+                      RufuxWriteProgress cb, void *user,
                       char *err, unsigned long errcap) {
   struct stat sst;
   if (stat(src, &sst) != 0 || !S_ISREG(sst.st_mode)) {
@@ -28,7 +28,7 @@ int lufus_write_image(const char *src, const char *dst,
     snprintf(err, errcap, "source '%s' is empty", src);
     return -1;
   }
-  if (lufus_check_target(dst, opts->allow_fixed, opts->allow_file,
+  if (rufux_check_target(dst, opts->allow_fixed, opts->allow_file,
                          err, errcap) != 0)
     return -1;
 

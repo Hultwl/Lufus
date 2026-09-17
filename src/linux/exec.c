@@ -3,11 +3,11 @@
 #include <unistd.h>
 #include <sys/wait.h>
 
-int lufus_have(const char *bin) {
+int rufux_have(const char *bin) {
   return access(bin, X_OK) == 0;
 }
 
-int lufus_run(const char *const argv[], int dry_run) {
+int rufux_run(const char *const argv[], int dry_run) {
   fprintf(stderr, "+");
   for (int i = 0; argv[i]; i++) fprintf(stderr, " %s", argv[i]);
   fprintf(stderr, "\n");

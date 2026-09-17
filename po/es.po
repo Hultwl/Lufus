@@ -1,7 +1,7 @@
-# Spanish translation for Lufus (sample for v1.0 infrastructure).
+# Spanish translation for Rufux (sample for v1.0 infrastructure).
 msgid ""
 msgstr ""
-"Project-Id-Version: lufus 1.0.0\n"
+"Project-Id-Version: rufux 1.0.0\n"
 "Language: es\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 
@@ -17,8 +17,8 @@ msgstr "Iniciar (simulación, sin escritura)"
 msgid "SHA-256: (no ISO)"
 msgstr "SHA-256: (sin ISO)"
 
-msgid "Lufus — USB Creator (Linux)"
-msgstr "Lufus — Creador USB (Linux)"
+msgid "Rufux — USB Creator (Linux)"
+msgstr "Rufux — Creador USB (Linux)"
 
 msgid "Select an ISO first."
 msgstr "Elige primero una ISO."

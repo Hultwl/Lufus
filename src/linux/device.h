@@ -1,5 +1,5 @@
-#ifndef LUFUS_DEVICE_H
-#define LUFUS_DEVICE_H
+#ifndef RUFUX_DEVICE_H
+#define RUFUX_DEVICE_H
 // Phase 1: Linux device scan (replaces src/dev.c SetupDi path).
 
 typedef struct {
@@ -13,14 +13,14 @@ typedef struct {
   int removable;
   int is_usb;
   int mounted;        // 1 if any partition of this disk is mounted
-} LufusDevice;
+} RufuxDevice;
 
-int lufus_list_devices(LufusDevice *out, int max, int include_fixed);
-void lufus_print_devices(const LufusDevice *devs, int n);
-void lufus_print_devices_json(const LufusDevice *devs, int n);
+int rufux_list_devices(RufuxDevice *out, int max, int include_fixed);
+void rufux_print_devices(const RufuxDevice *devs, int n);
+void rufux_print_devices_json(const RufuxDevice *devs, int n);
 // Safety: 0 = ok to target. allow_file permits regular files (tests).
 // err explains refusal (fixed disk, mounted, missing...).
-int lufus_check_target(const char *path, int allow_fixed, int allow_file,
+int rufux_check_target(const char *path, int allow_fixed, int allow_file,
                        char *err, unsigned long cap);
-void lufus_human_size(unsigned long long bytes, char *out, unsigned long cap);
+void rufux_human_size(unsigned long long bytes, char *out, unsigned long cap);
 #endif

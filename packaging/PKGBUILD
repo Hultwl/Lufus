@@ -1,10 +1,10 @@
 # Maintainer: Hultwl <Hultwl@users.noreply.github.com>
-pkgname=lufus
+pkgname=rufux
 pkgver=1.0.0
 pkgrel=1
-pkgdesc="Lufus — bootable USB creator for Linux (Rufus port)"
+pkgdesc="Rufux — bootable USB creator for Linux (Rufus port)"
 arch=('x86_64' 'aarch64')
-url="https://github.com/Hultwl/Lufus"
+url="https://github.com/Hultwl/Rufux"
 license=('GPL-3.0-or-later')
 depends=('gtk4' 'hicolor-icon-theme' 'udisks2' 'util-linux')
 makedepends=('cmake' 'gcc' 'pkgconf' 'gettext')
@@ -21,7 +21,7 @@ optdepends=(
   'curl: release update checks'
   'polkit: privilege escalation via pkexec'
 )
-source=("git+https://github.com/Hultwl/Lufus.git#tag=v${pkgver}")
+source=("git+https://github.com/Hultwl/Rufux.git#tag=v${pkgver}")
 sha256sums=('SKIP')
 
 build() {

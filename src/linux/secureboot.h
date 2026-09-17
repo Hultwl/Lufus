@@ -1,10 +1,10 @@
-#ifndef LUFUS_SECUREBOOT_H
-#define LUFUS_SECUREBOOT_H
+#ifndef RUFUX_SECUREBOOT_H
+#define RUFUX_SECUREBOOT_H
 // Secure Boot status + EFI binary validation (Phase 3).
-typedef enum { LUFUS_SB_ENABLED, LUFUS_SB_DISABLED, LUFUS_SB_UNKNOWN } LufusSbState;
-LufusSbState lufus_sb_state(void);
-const char *lufus_sb_string(LufusSbState s);
+typedef enum { RUFUX_SB_ENABLED, RUFUX_SB_DISABLED, RUFUX_SB_UNKNOWN } RufuxSbState;
+RufuxSbState rufux_sb_state(void);
+const char *rufux_sb_string(RufuxSbState s);
 // 0 = valid EFI PE binary. subsystem_out receives PE subsystem id.
-int lufus_validate_efi(const char *path, unsigned *subsystem_out,
+int rufux_validate_efi(const char *path, unsigned *subsystem_out,
                        char *err, unsigned long cap);
 #endif

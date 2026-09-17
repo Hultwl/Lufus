@@ -1,7 +1,7 @@
-# Lufus translation template.
+# Rufux translation template.
 msgid ""
 msgstr ""
-"Project-Id-Version: lufus 1.0.0\n"
+"Project-Id-Version: rufux 1.0.0\n"
 "Content-Type: text/plain; charset=UTF-8\n"
 
 msgid "Refresh"
@@ -16,7 +16,7 @@ msgstr ""
 msgid "SHA-256: (no ISO)"
 msgstr ""
 
-msgid "Lufus — USB Creator (Linux)"
+msgid "Rufux — USB Creator (Linux)"
 msgstr ""
 
 msgid "Select an ISO first."

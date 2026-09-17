@@ -3,15 +3,15 @@
 #include <string.h>
 #include <sys/stat.h>
 
-int lufus_probe_iso(const char *path, char *label_out, unsigned long cap) {
-  LufusIsoInfo info = {0};
-  int rc = lufus_probe_iso_detail(path, &info);
+int rufux_probe_iso(const char *path, char *label_out, unsigned long cap) {
+  RufuxIsoInfo info = {0};
+  int rc = rufux_probe_iso_detail(path, &info);
   if (rc != 0) return rc;
   snprintf(label_out, cap, "%s", info.label);
   return info.valid_iso ? 0 : -2;
 }
 
-int lufus_probe_iso_detail(const char *path, LufusIsoInfo *info) {
+int rufux_probe_iso_detail(const char *path, RufuxIsoInfo *info) {
   memset(info, 0, sizeof *info);
   struct stat st;
   if (stat(path, &st) != 0) return -1;
@@ -46,7 +46,7 @@ int lufus_probe_iso_detail(const char *path, LufusIsoInfo *info) {
   return 0;
 }
 
-void lufus_print_iso_detail(const char *path, const LufusIsoInfo *info) {
+void rufux_print_iso_detail(const char *path, const RufuxIsoInfo *info) {
   printf("file: %s\nsize: %llu bytes (%.2f MB)\nlabel: %s\nvalid_iso: %s\nbootable: %s\nefi_hint: %s\n",
          path, info->size_bytes, info->size_bytes / 1048576.0,
          info->label[0] ? info->label : "(none)",

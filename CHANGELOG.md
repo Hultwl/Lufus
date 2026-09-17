@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.0.1
+
+- Rename: Lufus → Rufux. The name Lufus belongs to the established
+  Hogjects/Lufus project (Python, MIT); this port rebrands to avoid
+  confusion. Binary, app ID, locales, docs, and packaging all renamed.
+  No functional changes.
+
 ## v1.0.0 (Phase 3 — Stable)
 
 - udisks2 auto-mount: `mount` / `umount`, `create --mode extract` end-to-end on disks
@@ -9,7 +16,7 @@
 - i18n infrastructure (`po/`, fr + es samples, `ENABLE_NLS`)
 - GUI: `--theme system|dark|light`, Secure Boot status line
 - Packaging: `packaging/PKGBUILD`, Flatpak manifest, man page, desktop file
-- CI: `.github/workflows/lufus.yml` (build + ctest + artifact)
+- CI: `.github/workflows/rufux.yml` (build + ctest + artifact)
 - `tests/HW_MATRIX.md` + `tests/hw_smoke.sh` for manual hardware validation
 
 ## v0.3.0 (Phase 2 — Bootable Parity)

@@ -4,7 +4,7 @@
 #include <string.h>
 #include <ctype.h>
 
-void lufus_part1(const char *disk, char *out, unsigned long cap) {
+void rufux_part1(const char *disk, char *out, unsigned long cap) {
   size_t L = strlen(disk);
   // nvme/mmcblk/loop need 'p' separator: /dev/nvme0n1p1, /dev/mmcblk0p1
   int need_p = 0;
@@ -23,9 +23,9 @@ static int run_capture(const char *cmd, char *out, unsigned long cap) {
   return rc == 0 ? 0 : -1;
 }
 
-int lufus_mount(const char *dev, int dry_run, char *mnt_out, unsigned long cap,
+int rufux_mount(const char *dev, int dry_run, char *mnt_out, unsigned long cap,
                 char *err, unsigned long errcap) {
-  if (!lufus_have("/usr/bin/udisksctl")) {
+  if (!rufux_have("/usr/bin/udisksctl")) {
     snprintf(err, errcap, "udisksctl not found (install udisks2)");
     return -1;
   }
@@ -37,7 +37,7 @@ int lufus_mount(const char *dev, int dry_run, char *mnt_out, unsigned long cap,
     snprintf(err, errcap, "udisksctl mount failed: %.400s", out);
     return -1;
   }
-  // "Mounted /dev/sda1 at /run/media/user/LUFUS."
+  // "Mounted /dev/sda1 at /run/media/user/RUFUX."
   const char *at = strstr(out, " at ");
   if (!at) { snprintf(err, errcap, "cannot parse mount output: %.400s", out); return -1; }
   at += 4;
@@ -50,8 +50,8 @@ int lufus_mount(const char *dev, int dry_run, char *mnt_out, unsigned long cap,
   return 0;
 }
 
-int lufus_unmount(const char *dev, int dry_run, char *err, unsigned long errcap) {
-  if (!lufus_have("/usr/bin/udisksctl")) {
+int rufux_unmount(const char *dev, int dry_run, char *err, unsigned long errcap) {
+  if (!rufux_have("/usr/bin/udisksctl")) {
     snprintf(err, errcap, "udisksctl not found (install udisks2)");
     return -1;
   }

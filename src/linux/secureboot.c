@@ -3,10 +3,10 @@
 #include <string.h>
 #include <stdint.h>
 
-const char *lufus_sb_string(LufusSbState s) {
+const char *rufux_sb_string(RufuxSbState s) {
   switch (s) {
-    case LUFUS_SB_ENABLED: return "enabled";
-    case LUFUS_SB_DISABLED: return "disabled";
+    case RUFUX_SB_ENABLED: return "enabled";
+    case RUFUX_SB_DISABLED: return "disabled";
     default: return "unknown";
   }
 }
@@ -24,14 +24,14 @@ static int efivar_byte(const char *name, unsigned char *out) {
   return 0;
 }
 
-LufusSbState lufus_sb_state(void) {
+RufuxSbState rufux_sb_state(void) {
   unsigned char sb = 0, setup = 0;
   if (efivar_byte("SecureBoot-8be4df61-93ca-11d2-aa0d-00e098032b8c", &sb) == 0) {
-    if (sb == 0) return LUFUS_SB_DISABLED;
+    if (sb == 0) return RUFUX_SB_DISABLED;
     // In SetupMode, keys are not enforced
     if (efivar_byte("SetupMode-8be4df61-93ca-11d2-aa0d-00e098032b8c", &setup) == 0 && setup == 1)
-      return LUFUS_SB_DISABLED;
-    return LUFUS_SB_ENABLED;
+      return RUFUX_SB_DISABLED;
+    return RUFUX_SB_ENABLED;
   }
   // fallback: bootctl (systemd)
   FILE *p = popen("bootctl status 2>/dev/null | grep -i 'Secure Boot'", "r");
@@ -42,14 +42,14 @@ LufusSbState lufus_sb_state(void) {
     int rc = pclose(p);
     (void)rc;
     if (found) {
-      if (strstr(line, "enabled")) return LUFUS_SB_ENABLED;
-      if (strstr(line, "disabled")) return LUFUS_SB_DISABLED;
+      if (strstr(line, "enabled")) return RUFUX_SB_ENABLED;
+      if (strstr(line, "disabled")) return RUFUX_SB_DISABLED;
     }
   }
-  return LUFUS_SB_UNKNOWN;
+  return RUFUX_SB_UNKNOWN;
 }
 
-int lufus_validate_efi(const char *path, unsigned *subsystem_out,
+int rufux_validate_efi(const char *path, unsigned *subsystem_out,
                        char *err, unsigned long cap) {
   FILE *f = fopen(path, "rb");
   if (!f) { snprintf(err, cap, "cannot open '%s'", path); return -1; }

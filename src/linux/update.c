@@ -3,15 +3,15 @@
 #include <stdio.h>
 #include <string.h>
 
-int lufus_update_check(const char *current_version, char *latest_out,
+int rufux_update_check(const char *current_version, char *latest_out,
                        unsigned long cap, char *err, unsigned long errcap) {
-  if (!lufus_have("/usr/bin/curl")) {
+  if (!rufux_have("/usr/bin/curl")) {
     snprintf(err, errcap, "curl not found, cannot check for updates");
     return -1;
   }
-  FILE *p = popen("/usr/bin/curl -sL --max-time 15 -H \"User-Agent: lufus\" "
+  FILE *p = popen("/usr/bin/curl -sL --max-time 15 -H \"User-Agent: rufux\" "
                   "-H \"Accept: application/vnd.github+json\" "
-                  "https://api.github.com/repos/Hultwl/Lufus/releases/latest 2>/dev/null", "r");
+                  "https://api.github.com/repos/Hultwl/Rufux/releases/latest 2>/dev/null", "r");
   if (!p) { snprintf(err, errcap, "cannot run curl"); return -1; }
   char buf[8192] = {0};
   size_t n = fread(buf, 1, sizeof buf - 1, p);

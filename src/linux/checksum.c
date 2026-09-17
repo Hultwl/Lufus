@@ -75,7 +75,7 @@ static void sha_final(Sha256 *s, unsigned char out[32]) {
   }
 }
 
-void lufus_hex32(const unsigned char in32[32], char out65[65]) {
+void rufux_hex32(const unsigned char in32[32], char out65[65]) {
   static const char *H = "0123456789abcdef";
   for (int i = 0; i < 32; i++) {
     out65[2*i] = H[in32[i] >> 4];
@@ -84,8 +84,8 @@ void lufus_hex32(const unsigned char in32[32], char out65[65]) {
   out65[64] = 0;
 }
 
-int lufus_sha256_file(const char *path, unsigned char out32[32],
-                      LufusHashProgress cb, void *user,
+int rufux_sha256_file(const char *path, unsigned char out32[32],
+                      RufuxHashProgress cb, void *user,
                       char *err, unsigned long errcap) {
   struct stat st;
   if (stat(path, &st) != 0) {

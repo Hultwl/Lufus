@@ -1,19 +1,19 @@
-# Packaging Lufus
+# Packaging Rufux
 
 ## Arch Linux (AUR)
 
 `packaging/PKGBUILD` builds from the `v1.0.0` tag:
 
 ```sh
-cp packaging/PKGBUILD /tmp/lufus-pkg/ && cd /tmp/lufus-pkg
+cp packaging/PKGBUILD /tmp/rufux-pkg/ && cd /tmp/rufux-pkg
 makepkg -si
 ```
 
 ## Flatpak
 
 ```sh
-flatpak-builder --install build-dir packaging/io.github.hultwl.lufus.json
-flatpak run io.github.hultwl.lufus --gui
+flatpak-builder --install build-dir packaging/io.github.hultwl.rufux.json
+flatpak run io.github.hultwl.rufux --gui
 ```
 
 Note: raw block-device access from Flatpak needs `--device=all`

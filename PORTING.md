@@ -1,4 +1,4 @@
-# Lufus Porting Plan — Rufus (Windows) → Lufus (Linux)
+# Rufux Porting Plan — Rufus (Windows) → Rufux (Linux)
 
 Upstream: pbatard/rufus @ 2ea79910, ~46k LOC C (gnu11), Win10+ Win32, GPLv3.
 
@@ -27,8 +27,8 @@ Upstream: pbatard/rufus @ 2ea79910, ~46k LOC C (gnu11), Win10+ Win32, GPLv3.
 ## Milestones
 
 1. [x] Scaffold: CMake + `src/linux/` + `src/gui/` (this commit)
-2. [ ] `lufus list` — real udev enumeration + size/transport (USB vs NVMe filter)
-3. [ ] `lufus write --dry-run` — safe DD path with `O_EXCL`, progress, verify
+2. [ ] `rufux list` — real udev enumeration + size/transport (USB vs NVMe filter)
+3. [ ] `rufux write --dry-run` — safe DD path with `O_EXCL`, progress, verify
 4. [ ] Partition + mkfs dispatch (libfdisk + mkfs.*)
 5. [ ] ISO extract (reuse libcdio/bled) + GRUB/syslinux install on Linux
 6. [ ] GTK4 feature-parity UI (device picker, ISO picker, log, progress)
