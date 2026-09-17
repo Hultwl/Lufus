@@ -44,7 +44,6 @@ int lufus_update_check(const char *current_version, char *latest_out,
   const char *q1 = strchr(t, '"');
   const char *q2 = q1 ? strchr(q1 + 1, '"') : NULL;
   const char *q3 = q2 ? strchr(q2 + 1, '"') : NULL;
-  const char *q4 = q3 ? strchr(q3 + 1, '"') : NULL;
   // t=q1..q2 is the "tag_name" key, value sits between q2..q3
   if (!q3) { snprintf(err, errcap, "cannot parse tag_name"); return -1; }
   size_t L = (size_t)(q3 - (q2 + 1));
