@@ -1,6 +1,12 @@
 # Changelog
 
-## 1.1
+## 1.1.1
+
+- Worker stderr now streams into the GUI log (auth failures, refusal
+  reasons) plus the worker exit code — failures are never silent.
+- The worker dismounts the target's own partitions before touching
+  it (Rufus behavior; consent was the START warning) instead of
+  refusing auto-mounted sticks.
 
 - Real progress bar: every flow reports staged percent end to end
   (bad-blocks 0-10, zero 10-15, write 15-85, verify 85-100; extract

@@ -68,6 +68,46 @@ static int is_block(const char *p) {
   return stat(p, &st) == 0 && S_ISBLK(st.st_mode);
 }
 
+// Rufus dismounts the target's volumes before touching them instead of
+// refusing: unmount every mounted partition belonging to this disk.
+// Returns -1 if anything is still mounted afterwards.
+static int unmount_disk(const char *dst, int dry_run,
+                        RufuxCreateLog log, void *luser,
+                        char *err, unsigned long cap) {
+  const char *base = strrchr(dst, '/');
+  base = base ? base + 1 : dst;
+  FILE *f = fopen("/proc/mounts", "r");
+  if (!f) return 0;
+  char line[1024];
+  char parts[32][128];
+  int nparts = 0;
+  size_t blen = strlen(base);
+  while (fgets(line, sizeof line, f) && nparts < 32) {
+    char dev[512] = {0};
+    if (sscanf(line, "%511s", dev) != 1) continue;
+    if (strncmp(dev, "/dev/", 5)) continue;
+    const char *d = dev + 5;
+    if (strncmp(d, base, blen)) continue;
+    // dst itself, or dst + partition suffix (digits / p+digits)
+    const char *rest = d + blen;
+    if (rest[0] && rest[0] != 'p' && (rest[0] < '0' || rest[0] > '9')) continue;
+    int dup = 0;
+    for (int i = 0; i < nparts; i++)
+      if (!strcmp(parts[i], dev)) { dup = 1; break; }
+    if (!dup) snprintf(parts[nparts++], sizeof parts[0], "%s", dev);
+  }
+  fclose(f);
+  for (int i = 0; i < nparts; i++) {
+    char m[256];
+    snprintf(m, sizeof m, "Unmounting %s...", parts[i]);
+    if (log) log(m, luser);
+    if (rufux_unmount(parts[i], dry_run, err, cap) != 0) {
+      if (!dry_run) return -1;
+    }
+  }
+  return 0;
+}
+
 static unsigned long long file_size(const char *p) {
   struct stat st;
   if (stat(p, &st) != 0 || !S_ISREG(st.st_mode)) return 0;
@@ -345,6 +385,12 @@ int rufux_create(const char *src, const char *dst, const RufuxCreateOpts *o,
   }
   if (!o->dry_run && is_block(dst)) {
     if (rufux_need_root_for_block(dst, err, errcap) != 0) return -1;
+    // Dismount our own target first (consent was the START warning);
+    // the per-operation checks below re-verify it afterwards.
+    if (unmount_disk(dst, 0, log, luser, err, errcap) != 0) {
+      if (!err[0]) snprintf(err, errcap, "cannot unmount %s (close files and retry)", dst);
+      return -1;
+    }
   }
   // dd layout reserves 0-15 for checks; extract/format start at 0.
   if (o->badblock_passes > 0 && !o->dry_run) {

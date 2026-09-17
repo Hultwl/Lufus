@@ -509,6 +509,11 @@ static void on_start(GtkButton *b, gpointer win) {
   GInputStream *errs = g_subprocess_get_stderr_pipe(proc);
   GMainLoop *loop = g_main_loop_new(NULL, FALSE);
   gboolean done = FALSE;
+  // Worker stderr carries both \r progress and real error text (pkexec
+  // auth failures, refusal reasons). Forward completed text lines to
+  // the log so failures are never silent; parse % for the bar.
+  char err_acc[8192] = {0};
+  size_t err_len = 0;
   while (!done) {
     // Drain whatever the worker has emitted, then pump the UI.
     char *line = g_data_input_stream_read_line(out, NULL, NULL, NULL);
@@ -536,6 +541,27 @@ static void on_start(GtkButton *b, gpointer win) {
           gui_status(st);
         }
       }
+      // Accumulate and flush complete text lines (progress fragments
+      // without a newline stay buffered).
+      if (err_len + (size_t)n < sizeof err_acc - 1) {
+        memcpy(err_acc + err_len, ebuf, (size_t)n);
+        err_len += (size_t)n;
+        err_acc[err_len] = 0;
+      }
+      char *line = err_acc;
+      char *nl;
+      while ((nl = strchr(line, '\n')) != NULL) {
+        *nl = 0;
+        // Skip pure progress lines ("\r 42% ..."); log everything else.
+        char *t = line;
+        while (*t == '\r' || *t == ' ') t++;
+        if (!strchr(t, '%') && t[0]) gui_log(t);
+        line = nl + 1;
+      }
+      size_t rest = err_len - (size_t)(line - err_acc);
+      memmove(err_acc, line, rest);
+      err_len = rest;
+      err_acc[err_len] = 0;
     }
     if (g_subprocess_get_if_exited(proc)) {
       // Final drain, then out.
@@ -548,13 +574,23 @@ static void on_start(GtkButton *b, gpointer win) {
     }
   }
   gboolean ok = g_subprocess_get_successful(proc);
+  int code = -1;
+  if (g_subprocess_get_if_exited(proc)) code = g_subprocess_get_exit_status(proc);
+  // Flush any trailing stderr text without a newline.
+  if (err_len) {
+    char *t = err_acc;
+    while (*t == '\r' || *t == ' ') t++;
+    if (!strchr(t, '%') && t[0]) gui_log(t);
+  }
   g_object_unref(out);
   g_object_unref(proc);
   g_main_loop_unref(loop);
   gtk_widget_set_sensitive(start_btn, TRUE);
   gtk_widget_set_sensitive(close_btn, TRUE);
   if (!ok) {
-    gui_log("Failed: worker reported an error (see log above).");
+    char m[256];
+    snprintf(m, sizeof m, "Failed: worker exited with code %d (see log above).", code);
+    gui_log(m);
     gui_status("Failed");
     GtkWidget *e = gtk_message_dialog_new(GTK_WINDOW(win), GTK_DIALOG_MODAL,
         GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE, "Failed. See the log for details.");
