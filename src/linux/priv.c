@@ -26,22 +26,28 @@ static const char *keep_env[] = {
 void rufux_escalate_gui(int argc, char **argv) {
   if (geteuid() == 0) return;
   if (getenv("RUFUX_NO_ESCALATE")) return;
-  // Re-exec: pkexec env VAR=val ... /proc/self/exe <orig args>
+  // Resolve OUR executable now: passing "/proc/self/exe" through
+  // pkexec+env would resolve it in env's process (i.e. env itself,
+  // which then just prints the environment and exits --empty window).
+  char exe[1024] = {0};
+  ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+  const char *self = (n > 0) ? exe : argv[0];
+  // Re-exec: pkexec env VAR=val ... <self> <orig args>
   char *exec_argv[64];
-  int n = 0;
-  exec_argv[n++] = "pkexec";
-  exec_argv[n++] = "env";
-  for (int i = 0; keep_env[i] && n < 40; i++) {
+  int k = 0;
+  exec_argv[k++] = "pkexec";
+  exec_argv[k++] = "env";
+  for (int i = 0; keep_env[i] && k < 40; i++) {
     const char *v = getenv(keep_env[i]);
     if (!v || !v[0]) continue;
     char *kv = malloc(strlen(keep_env[i]) + strlen(v) + 2);
     if (!kv) continue;
     sprintf(kv, "%s=%s", keep_env[i], v);
-    exec_argv[n++] = kv;
+    exec_argv[k++] = kv;
   }
-  exec_argv[n++] = "/proc/self/exe";
-  for (int i = 1; i < argc && n < 63; i++) exec_argv[n++] = argv[i];
-  exec_argv[n] = NULL;
+  exec_argv[k++] = (char *)self;
+  for (int i = 1; i < argc && k < 63; i++) exec_argv[k++] = argv[i];
+  exec_argv[k] = NULL;
   execvp("pkexec", exec_argv);
   // Only reached if pkexec is missing/broken: refuse, don't limp along.
   fprintf(stderr, "rufux: GUI needs root (block-device access) but pkexec failed: %s\n"
