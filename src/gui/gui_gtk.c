@@ -7,7 +7,6 @@
 #include "../linux/checksum.h"
 #include "../linux/create.h"
 #include "../linux/secureboot.h"
-#include "../linux/priv.h"
 #include "../linux/i18n.h"
 
 #ifdef HAVE_GTK
@@ -364,19 +363,6 @@ static void on_hdd_toggled(GtkCheckButton *b, gpointer u) {
   on_refresh(NULL, NULL); // rescan with/without fixed disks
 }
 
-// --- progress/log plumbing for rufux_create ---
-static void create_progress_cb(unsigned long long done, unsigned long long total, void *u) {
-  (void)u;
-  if (total) gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress), (double)done / (double)total);
-  while (g_main_context_iteration(NULL, FALSE)) {}
-}
-
-static void create_log_cb(const char *msg, void *u) {
-  (void)u;
-  gui_log(msg);
-  while (g_main_context_iteration(NULL, FALSE)) {}
-}
-
 static int parse_cluster_sectors(const char *s) {
   unsigned v = 0;
   if (!s || strstr(s, "Default")) return 0;
@@ -456,30 +442,109 @@ static void on_start(GtkButton *b, gpointer win) {
     return;
   }
 
-  // Privilege gate: block devices need root (restart hint, like pkexec flows)
-  struct stat st;
-  if (stat(dst, &st) == 0 && S_ISBLK(st.st_mode) && geteuid() != 0) {
-    GtkWidget *e = gtk_message_dialog_new(GTK_WINDOW(win), GTK_DIALOG_MODAL,
-        GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE,
-        "Block devices need root.\nRestart Rufux with:\n  sudo rufux --gui\nor run the CLI:\n  sudo rufux create ... --real --yes");
-    g_signal_connect(e, "response", G_CALLBACK(gtk_window_destroy), NULL);
-    gtk_window_present(GTK_WINDOW(e));
-    gui_log("Blocked: need root for block devices.");
-    return;
-  }
-
   gui_status("Working...");
   gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress), 0.0);
-  char err[1024] = {0};
-  int rc = rufux_create(src, dst, &o, create_progress_cb, NULL,
-                        create_log_cb, NULL, err, sizeof err);
-  if (rc != 0) {
+
+  // Escalate per-operation, not per-app: spawn pkexec <self> create ...
+  // The GUI stays on the user's session (theme, portals, display all
+  // intact); only the display-free CLI worker runs as root. pkexec shows
+  // the normal desktop password prompt; no terminal needed.
+  char exe[1024] = {0};
+  const char *self = NULL;
+  const char *ai = getenv("APPIMAGE");
+  if (ai && ai[0] && access(ai, X_OK) == 0) {
+    snprintf(exe, sizeof exe, "%s", ai);
+    self = exe;
+  } else {
+    ssize_t n = readlink("/proc/self/exe", exe, sizeof exe - 1);
+    self = (n > 0) ? exe : "rufux";
+  }
+  char persist_s[32], cluster_s[32], passes_s[32];
+  snprintf(persist_s, sizeof persist_s, "%lu", o.persist_mb);
+  snprintf(cluster_s, sizeof cluster_s, "%d", o.cluster_sectors);
+  snprintf(passes_s, sizeof passes_s, "%d", o.badblock_passes);
+  const char *args[40];
+  int k = 0;
+  args[k++] = "pkexec";
+  args[k++] = (char *)self;
+  args[k++] = "create";
+  args[k++] = iso_mode ? sel_iso : "none";
+  args[k++] = (char *)dst;
+  args[k++] = "--mode"; args[k++] = (char *)o.mode;
+  args[k++] = "--scheme"; args[k++] = (char *)o.scheme;
+  args[k++] = "--fs"; args[k++] = (char *)o.fs;
+  args[k++] = "--label"; args[k++] = label;
+  args[k++] = "--persist-mb"; args[k++] = persist_s;
+  args[k++] = "--cluster-sectors"; args[k++] = cluster_s;
+  args[k++] = "--badblock-passes"; args[k++] = passes_s;
+  args[k++] = o.quick_format ? "--quick" : "--full";
+  if (!o.extended_label) args[k++] = "--no-autorun";
+  if (o.uefi_validate) args[k++] = "--uefi-validate";
+  if (o.verify) args[k++] = "--verify";
+  if (o.allow_fixed) args[k++] = "--allow-fixed";
+  args[k++] = "--real";
+  args[k++] = "--yes";
+  args[k] = NULL;
+
+  GError *gerr = NULL;
+  GSubprocess *proc = g_subprocess_newv(args,
+      G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_PIPE, &gerr);
+  if (!proc) {
     char m[1152];
-    snprintf(m, sizeof m, "Failed: %s", err[0] ? err : "unknown error");
+    snprintf(m, sizeof m, "Failed to launch helper: %s", gerr ? gerr->message : "?");
+    g_clear_error(&gerr);
     gui_log(m);
     gui_status("Failed");
+    return;
+  }
+  // Stream worker output: stdout lines -> log, stderr carries \r progress.
+  GDataInputStream *out = g_data_input_stream_new(g_subprocess_get_stdout_pipe(proc));
+  GInputStream *errs = g_subprocess_get_stderr_pipe(proc);
+  GMainLoop *loop = g_main_loop_new(NULL, FALSE);
+  gboolean done = FALSE;
+  while (!done) {
+    // Drain whatever the worker has emitted, then pump the UI.
+    char *line = g_data_input_stream_read_line(out, NULL, NULL, NULL);
+    while (line) {
+      gui_log(line);
+      g_free(line);
+      line = g_data_input_stream_read_line(out, NULL, NULL, NULL);
+    }
+    char ebuf[4096];
+    gssize n = g_pollable_input_stream_read_nonblocking(
+        G_POLLABLE_INPUT_STREAM(errs), ebuf, sizeof ebuf - 1, NULL, NULL);
+    if (n > 0) {
+      ebuf[n] = 0;
+      // progress format: "\r 42%  20/48 MB" — take the last percentage
+      char *pct = NULL, *q = ebuf;
+      while ((q = strchr(q, '%')) != NULL) { pct = q; q++; }
+      if (pct) {
+        int p = 0;
+        char *s = pct - 1;
+        while (s >= ebuf && *s != '\r' && *s != '\n') s--;
+        if (sscanf(s + 1, "%d%%", &p) == 1 && p >= 0 && p <= 100)
+          gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress), p / 100.0);
+      }
+    }
+    if (g_subprocess_get_if_exited(proc)) {
+      // Final drain, then out.
+      char *l2 = g_data_input_stream_read_line(out, NULL, NULL, NULL);
+      while (l2) { gui_log(l2); g_free(l2); l2 = g_data_input_stream_read_line(out, NULL, NULL, NULL); }
+      done = TRUE;
+    } else {
+      while (g_main_context_iteration(NULL, FALSE)) {}
+      g_usleep(50000);
+    }
+  }
+  gboolean ok = g_subprocess_get_successful(proc);
+  g_object_unref(out);
+  g_object_unref(proc);
+  g_main_loop_unref(loop);
+  if (!ok) {
+    gui_log("Failed: worker reported an error (see log above).");
+    gui_status("Failed");
     GtkWidget *e = gtk_message_dialog_new(GTK_WINDOW(win), GTK_DIALOG_MODAL,
-        GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE, "Failed:\n%s", err);
+        GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE, "Failed. See the log for details.");
     g_signal_connect(e, "response", G_CALLBACK(gtk_window_destroy), NULL);
     gtk_window_present(GTK_WINDOW(e));
     return;
@@ -547,80 +612,17 @@ static GtkWidget *hrow(GtkWidget *box) {
   return r;
 }
 
-// Root GUI can't see the session bus, so it can't ask the desktop for
-// the theme. Inherit it from config files instead. Precedence:
-// --theme flag > ~/.config/rufux/settings.ini > GTK settings.ini >
-// COSMIC (dark-first desktop) > system default.
-static void apply_user_theme(void) {
-  if (opt_dark >= 0) return; // explicit --theme already applied
-  GtkSettings *st = gtk_settings_get_default();
-  if (!st) return;
-  char path[1152];
-  snprintf(path, sizeof path, "%s/.config/rufux/settings.ini", invoking_home());
-  GKeyFile *kf = g_key_file_new();
-  gboolean have = g_key_file_load_from_file(kf, path, G_KEY_FILE_NONE, NULL);
-  if (have) {
-    if (g_key_file_has_key(kf, "ui", "theme-name", NULL)) {
-      char *t = g_key_file_get_string(kf, "ui", "theme-name", NULL);
-      if (t && t[0]) g_object_set(st, "gtk-theme-name", t, NULL);
-      g_free(t);
-    }
-    if (g_key_file_has_key(kf, "ui", "dark", NULL)) {
-      g_object_set(st, "gtk-application-prefer-dark-theme",
-                   g_key_file_get_boolean(kf, "ui", "dark", NULL) ? TRUE : FALSE, NULL);
-      g_key_file_free(kf);
-      return;
-    }
-    g_key_file_free(kf);
-    return; // rufux config without dark key: respect theme only
-  }
-  g_key_file_free(kf);
-  // Fall back to the desktop's GTK config (GNOME/KDE/Xfce write here).
-  kf = g_key_file_new();
-  const char *inis[] = {"/.config/gtk-4.0/settings.ini", "/.config/gtk-3.0/settings.ini"};
-  have = FALSE;
-  for (int i = 0; i < 2 && !have; i++) {
-    snprintf(path, sizeof path, "%s%s", invoking_home(), inis[i]);
-    have = g_key_file_load_from_file(kf, path, G_KEY_FILE_NONE, NULL);
-  }
-  if (have) {
-    char *t = NULL;
-    if (g_key_file_has_key(kf, "Settings", "gtk-theme-name", NULL))
-      t = g_key_file_get_string(kf, "Settings", "gtk-theme-name", NULL);
-    if (t && t[0]) {
-      g_object_set(st, "gtk-theme-name", t, NULL);
-      if (strstr(t, "dark") || strstr(t, "Dark")) {
-        gboolean dark = TRUE;
-        if (g_key_file_has_key(kf, "Settings", "gtk-application-prefer-dark-theme", NULL))
-          dark = g_key_file_get_boolean(kf, "Settings", "gtk-application-prefer-dark-theme", NULL);
-        g_object_set(st, "gtk-application-prefer-dark-theme", dark, NULL);
-      } else if (g_key_file_has_key(kf, "Settings", "gtk-application-prefer-dark-theme", NULL)) {
-        g_object_set(st, "gtk-application-prefer-dark-theme",
-                     g_key_file_get_boolean(kf, "Settings", "gtk-application-prefer-dark-theme", NULL), NULL);
-      }
-      g_free(t);
-      g_key_file_free(kf);
-      return;
-    }
-    g_free(t);
-  }
-  g_key_file_free(kf);
-  // COSMIC is dark-first and keeps no GTK settings.ini: match it.
-  snprintf(path, sizeof path, "%s/.config/cosmic", invoking_home());
-  if (access(path, R_OK | X_OK) == 0)
-    g_object_set(st, "gtk-application-prefer-dark-theme", TRUE, NULL);
-}
-
 static void activate(GtkApplication *app, gpointer u) {
   (void)u;
   toplevel = gtk_application_window_new(app);
   gtk_window_set_title(GTK_WINDOW(toplevel), _("Rufux — USB Creator (Linux)"));
   gtk_window_set_default_size(GTK_WINDOW(toplevel), 520, 720);
+  // The GUI always runs as the invoking user now (privilege lives in the
+  // pkexec'd worker), so the desktop theme/settings apply naturally.
+  // --theme remains as an explicit override.
   if (opt_dark >= 0) {
     GtkSettings *st = gtk_settings_get_default();
     if (st) g_object_set(st, "gtk-application-prefer-dark-theme", opt_dark ? TRUE : FALSE, NULL);
-  } else {
-    apply_user_theme();
   }
   GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
   gtk_widget_set_margin_top(box, 10); gtk_widget_set_margin_bottom(box, 10);
@@ -830,7 +832,8 @@ static void activate(GtkApplication *app, gpointer u) {
 }
 
 int rufux_gui_run(int argc, char **argv) {
-  rufux_escalate_gui(argc, argv); // no-op when root (or RUFUX_NO_ESCALATE)
+  // The GUI always runs as the invoking user; privilege lives in the
+  // pkexec'd CLI worker spawned by START. No self-escalation here.
   // strip our own options before GTK parses argv
   const char *theme = getenv("RUFUX_THEME");
   char *filtered[128];
@@ -847,12 +850,6 @@ int rufux_gui_run(int argc, char **argv) {
     else if (!strcmp(theme, "light")) opt_dark = 0;
   }
   rufux_i18n_init();
-  if (geteuid() == 0) {
-    // No D-Bus session as root: keep GTK off dconf entirely instead of
-    // spamming "failed to commit changes" warnings. A flashing tool
-    // needs no persisted preferences. Respects an explicit user value.
-    setenv("GSETTINGS_BACKEND", "memory", 0);
-  }
   GtkApplication *app = gtk_application_new("io.github.hultwl.rufux", G_APPLICATION_FLAGS_NONE);
   g_signal_connect(app, "activate", G_CALLBACK(activate), NULL);
   int st = g_application_run(G_APPLICATION(app), nf, filtered);

@@ -9,6 +9,10 @@
   executable (readlink, not /proc/self/exe through env) and
   re-run the $APPIMAGE file itself (FUSE mounts are user-private,
   root gets EACCES inside them).
+- GUI runs as the invoking user; START escalates per-operation
+  (pkexec worker with streamed progress) instead of running the
+  whole app as root. Kills the root-on-Wayland display failures,
+  theme loss, portal loss, and dconf spam at the root.
 
 ## v1.0.3
 

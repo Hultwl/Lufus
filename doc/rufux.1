@@ -52,8 +52,10 @@ rufux \- bootable USB creator for Linux (Rufus port)
 .SH DESCRIPTION
 Rufux creates bootable USB drives on Linux. Destructive commands default to
 \fB\-\-dry\-run\fR planning; real block-device writes need \fB\-\-real \-\-yes\fR
-and root (sudo/pkexec). The GUI re-launches itself as root via pkexec
-when started unprivileged, so all operations work out of the box.
+and root (sudo/pkexec). The GUI itself always runs unprivileged and
+asks for elevation per operation: pressing START spawns the worker as
+root through pkexec (desktop password prompt, no terminal needed),
+streaming its progress back into the window.
 .SH EXAMPLES
 List removable drives:
 .PP
