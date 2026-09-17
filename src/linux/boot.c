@@ -48,8 +48,8 @@ int rufux_install_mbr(const char *dst, const RufuxBootOpts *o,
 
 int rufux_install_syslinux(const char *part_dev, int dry_run,
                            char *err, unsigned long cap) {
-  if (!rufux_have("/usr/bin/syslinux")) { snprintf(err, cap, "syslinux missing"); return -1; }
-  const char *av[] = {"/usr/bin/syslinux", "--install", part_dev, NULL};
+  if (!rufux_have("syslinux")) { snprintf(err, cap, "syslinux missing"); return -1; }
+  const char *av[] = {"syslinux", "--install", part_dev, NULL};
   if (rufux_run(av, dry_run) != 0) {
     if (!dry_run) snprintf(err, cap, "syslinux --install failed on '%s'", part_dev);
     return dry_run ? 0 : -1;

@@ -138,10 +138,10 @@ static int flow_extract_disk(const char *src, const char *dst, const RufuxCreate
   RufuxPartOpts po = {.scheme = o->scheme, .layout = "esp+main", .dry_run = 0,
                       .allow_fixed = o->allow_fixed, .allow_file = 0, .yes = 1};
   if (rufux_partition(dst, &po, err, cap) != 0) return -1;
-  const char *pp[] = {"/usr/bin/partprobe", dst, NULL};
-  if (rufux_have("/usr/bin/partprobe")) rufux_run(pp, 0);
-  const char *us[] = {"/usr/bin/udevadm", "settle", NULL};
-  if (rufux_have("/usr/bin/udevadm")) rufux_run(us, 0);
+  const char *pp[] = {"partprobe", dst, NULL};
+  if (rufux_have("partprobe")) rufux_run(pp, 0);
+  const char *us[] = {"udevadm", "settle", NULL};
+  if (rufux_have("udevadm")) rufux_run(us, 0);
   int waited = 0;
   while (access(p1, F_OK) != 0 && waited < 100) { usleep(100000); waited++; }
   if (access(p1, F_OK) != 0) { snprintf(err, cap, "partition '%s' did not appear", p1); return -1; }
@@ -206,10 +206,10 @@ static int flow_format(const char *dst, const RufuxCreateOpts *o,
     RufuxPartOpts po = {.scheme = o->scheme, .layout = "single", .dry_run = 0,
                         .allow_fixed = o->allow_fixed, .allow_file = 0, .yes = 1};
     if (rufux_partition(dst, &po, err, cap) != 0) return -1;
-    const char *pp[] = {"/usr/bin/partprobe", dst, NULL};
-    if (rufux_have("/usr/bin/partprobe")) rufux_run(pp, 0);
-    const char *us[] = {"/usr/bin/udevadm", "settle", NULL};
-    if (rufux_have("/usr/bin/udevadm")) rufux_run(us, 0);
+    const char *pp[] = {"partprobe", dst, NULL};
+    if (rufux_have("partprobe")) rufux_run(pp, 0);
+    const char *us[] = {"udevadm", "settle", NULL};
+    if (rufux_have("udevadm")) rufux_run(us, 0);
     char p1[160];
     rufux_part1(dst, p1, sizeof p1);
     int waited = 0;

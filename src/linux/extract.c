@@ -15,16 +15,16 @@ int rufux_extract_iso(const char *src, const char *dest_dir, int dry_run,
       return -1;
     }
   }
-  if (rufux_have("/usr/bin/bsdtar")) {
-    const char *av[] = {"/usr/bin/bsdtar", "-xf", src, "-C", dest_dir, NULL};
+  if (rufux_have("bsdtar")) {
+    const char *av[] = {"bsdtar", "-xf", src, "-C", dest_dir, NULL};
     if (rufux_run(av, dry_run) != 0) {
       if (!dry_run) snprintf(err, cap, "bsdtar extract failed");
       return dry_run ? 0 : -1;
     }
     return 0;
   }
-  if (rufux_have("/usr/bin/7z")) {
-    const char *av[] = {"/usr/bin/7z", "x", src, "-o", dest_dir, NULL};
+  if (rufux_have("7z")) {
+    const char *av[] = {"7z", "x", src, "-o", dest_dir, NULL};
     if (rufux_run(av, dry_run) != 0) {
       if (!dry_run) snprintf(err, cap, "7z extract failed");
       return dry_run ? 0 : -1;

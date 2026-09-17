@@ -1,10 +1,28 @@
 #include "exec.h"
 #include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <sys/wait.h>
 
-int rufux_have(const char *bin) {
-  return access(bin, X_OK) == 0;
+// PATH search (mirrors execvp): absolute paths checked directly,
+// bare names resolved against each PATH component.
+int rufux_have(const char *name) {
+  if (!name || !name[0]) return 0;
+  if (strchr(name, '/')) return access(name, X_OK) == 0;
+  const char *path = getenv("PATH");
+  if (!path || !path[0]) path = "/usr/local/bin:/usr/bin:/bin:/usr/local/sbin:/usr/sbin:/sbin";
+  char *copy = strdup(path);
+  if (!copy) return 0;
+  int found = 0;
+  for (char *save = NULL, *dir = strtok_r(copy, ":", &save); dir;
+       dir = strtok_r(NULL, ":", &save)) {
+    char full[1024];
+    snprintf(full, sizeof full, "%s/%s", dir, name);
+    if (access(full, X_OK) == 0) { found = 1; break; }
+  }
+  free(copy);
+  return found;
 }
 
 int rufux_run(const char *const argv[], int dry_run) {

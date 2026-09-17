@@ -1,5 +1,16 @@
 # Changelog
 
+## v1.0.3
+
+- Fix GPT ESP type: real GUID C12A7328-F81F-11D2-BA4B-00A0C93EC93B
+  (was a literal placeholder) + explicit portable sfdisk lines.
+- Fix stack buffer overflow in update-check error path (bound is
+  now the 128-byte stack buffer, not the caller's errcap).
+- Fix CLI-only link failure: gui stub always compiles.
+- Portable tool lookup: bare names resolved via PATH instead of
+  hardcoded /usr/bin (Debian/Ubuntu keep mkfs.* in /usr/sbin).
+- CI: install ntfs-3g for the NTFS format test.
+
 ## v1.0.2
 
 - GUI polish: portal-native file pickers (GtkFileDialog opens the

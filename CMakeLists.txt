@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Rufux VERSION 1.0.2 LANGUAGES C)
+project(Rufux VERSION 1.0.3 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -35,13 +35,15 @@ add_executable(rufux
   src/linux/priv.c
   src/linux/secureboot.c
   src/linux/update.c
+  src/gui/gui_gtk.c
 )
 
 target_include_directories(rufux PRIVATE src/linux src)
 
+# gui_gtk.c always compiles: without HAVE_GTK it builds the CLI stub
+# (previously the CLI-only branch failed to link: undefined rufux_gui_run).
 if(GTK4_FOUND AND UDEV_FOUND AND BLKID_FOUND)
   message(STATUS "GTK4+udev+blkid found, building full GUI")
-  target_sources(rufux PRIVATE src/gui/gui_gtk.c)
   target_compile_definitions(rufux PRIVATE HAVE_GTK=1)
   target_include_directories(rufux PRIVATE ${GTK4_INCLUDE_DIRS} ${UDEV_INCLUDE_DIRS} ${BLKID_INCLUDE_DIRS})
   target_link_directories(rufux PRIVATE ${GTK4_LIBRARY_DIRS} ${UDEV_LIBRARY_DIRS} ${BLKID_LIBRARY_DIRS})

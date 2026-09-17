@@ -33,24 +33,31 @@ int rufux_partition(const char *dst, const RufuxPartOpts *o,
   }
   if (rufux_check_target(dst, o->allow_fixed, o->allow_file, err, cap) != 0)
     return -1;
-  if (!rufux_have("/usr/bin/sfdisk")) {
+  if (!rufux_have("sfdisk")) {
     snprintf(err, cap, "sfdisk not found");
     return -1;
   }
-  // feed script via --wipe always + layout
-  // single: one Linux/UEFI-usable partition; esp+main: 512M ESP + rest
+  // Explicit field syntax (works across sfdisk generations):
+  // single: one Linux/UEFI-usable partition; esp+main: 512MiB ESP + rest.
+  // ESP type GUID C12A7328-F81F-11D2-BA4B-00A0C93EC93B (was a placeholder).
   char script[1024];
-  if (!strcmp(o->layout, "single"))
-    snprintf(script, sizeof script, "label: %s\n,;\n", scheme);
-  else if (!strcmp(scheme, "gpt"))
+  if (!strcmp(o->layout, "single")) {
+    if (!strcmp(scheme, "gpt"))
+      snprintf(script, sizeof script,
+               "label: gpt\nstart=1MiB, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4\n");
+    else
+      snprintf(script, sizeof script, "label: dos\nstart=1MiB, type=83\n");
+  } else if (!strcmp(scheme, "gpt")) {
     snprintf(script, sizeof script,
-             "label: gpt\nsize=512M, type=[UUID_PLACEHOLDER_1]\n;\n");
-  else
+             "label: gpt\nsize=512MiB, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B\n"
+             "type=0FC63DAF-8483-4772-8E79-3D69D8477DE4\n");
+  } else {
     snprintf(script, sizeof script,
-             "label: dos\nsize=512M, type=ef\n;\n");
+             "label: dos\nsize=512MiB, type=ef\ntype=83\n");
+  }
 
   if (o->dry_run) {
-    fprintf(stderr, "+ /usr/bin/sfdisk --wipe always %s <<'%s'\n", dst, script);
+    fprintf(stderr, "+ sfdisk --wipe always %s <<'%s'\n", dst, script);
     return 0;
   }
   // write script to temp and run sfdisk < script (no shell)
@@ -60,7 +67,7 @@ int rufux_partition(const char *dst, const RufuxPartOpts *o,
   size_t L = strlen(script);
   if (write(fd, script, L) != (ssize_t)L) { close(fd); unlink(tmpl); snprintf(err, cap, "tmp write failed"); return -1; }
   close(fd);
-  const char *argv[] = {"/usr/bin/sfdisk", "--wipe", "always", dst, NULL};
+  const char *argv[] = {"sfdisk", "--wipe", "always", dst, NULL};
   // redirect stdin from tmpl
   int rc = 0;
   pid_t p = fork();
@@ -68,7 +75,7 @@ int rufux_partition(const char *dst, const RufuxPartOpts *o,
   else if (p == 0) {
     FILE *f = freopen(tmpl, "r", stdin);
     (void)f;
-    execv(argv[0], (char *const *)argv);
+    execvp(argv[0], (char *const *)argv);
     _exit(127);
   } else {
     int st = 0;
@@ -78,8 +85,8 @@ int rufux_partition(const char *dst, const RufuxPartOpts *o,
   unlink(tmpl);
   // best-effort rescan
   {
-    const char *pa[] = {"/usr/bin/partprobe", dst, NULL};
-    if (rufux_have("/usr/bin/partprobe")) rufux_run(pa, 1 /*dry: just log, ignore*/);
+    const char *pa[] = {"partprobe", dst, NULL};
+    if (rufux_have("partprobe")) rufux_run(pa, 1 /*dry: just log, ignore*/);
   }
   if (rc != 0) snprintf(err, cap, "sfdisk failed on '%s'", dst);
   return rc;

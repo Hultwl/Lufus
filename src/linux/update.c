@@ -5,11 +5,11 @@
 
 int rufux_update_check(const char *current_version, char *latest_out,
                        unsigned long cap, char *err, unsigned long errcap) {
-  if (!rufux_have("/usr/bin/curl")) {
+  if (!rufux_have("curl")) {
     snprintf(err, errcap, "curl not found, cannot check for updates");
     return -1;
   }
-  FILE *p = popen("/usr/bin/curl -sL --max-time 15 -H \"User-Agent: rufux\" "
+  FILE *p = popen("curl -sL --max-time 15 -H \"User-Agent: rufux\" "
                   "-H \"Accept: application/vnd.github+json\" "
                   "https://api.github.com/repos/Hultwl/Rufux/releases/latest 2>/dev/null", "r");
   if (!p) { snprintf(err, errcap, "cannot run curl"); return -1; }
@@ -30,9 +30,12 @@ int rufux_update_check(const char *current_version, char *latest_out,
       const char *a = strchr(m, ':');
       const char *b = a ? strchr(a, '"') : NULL;
       const char *c = b ? strchr(b + 1, '"') : NULL;
-      if (c && (size_t)(c - (b + 1)) < errcap - 16) {
+      if (c) {
+        // Bound by OUR stack buffer, not the caller's errcap: the API
+        // response is attacker-influenced, msg[] is only 128 bytes.
         char msg[128] = {0};
         size_t L = (size_t)(c - (b + 1));
+        if (L > sizeof(msg) - 1) L = sizeof(msg) - 1;
         memcpy(msg, b + 1, L);
         snprintf(err, errcap, "GitHub: %s", msg);
         return -1;

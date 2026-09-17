@@ -7,6 +7,7 @@
 #include "../linux/checksum.h"
 #include "../linux/create.h"
 #include "../linux/secureboot.h"
+#include "../linux/priv.h"
 #include "../linux/i18n.h"
 
 #ifdef HAVE_GTK
@@ -829,6 +830,7 @@ static void activate(GtkApplication *app, gpointer u) {
 }
 
 int rufux_gui_run(int argc, char **argv) {
+  rufux_escalate_gui(argc, argv); // no-op when root (or RUFUX_NO_ESCALATE)
   // strip our own options before GTK parses argv
   const char *theme = getenv("RUFUX_THEME");
   char *filtered[128];
