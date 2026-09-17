@@ -74,8 +74,8 @@ DST4="$TMP/dst4.img"; truncate -s 4M "$DST4"
 "$RUFUX" create "$SRC4" "$DST4" --mode dd --real --allow-file --yes --verify >/dev/null 2>&1 \
   && cmp -n "$(stat -c%s "$SRC4")" "$SRC4" "$DST4" && ok "create dd real" || bad "create dd real"
 CDIR="$TMP/cdir"; mkdir -p "$CDIR"
-"$RUFUX" create "$ISO" "$CDIR" --mode extract --real >/dev/null 2>&1 \
-  && [ -f "$CDIR/README.txt" ] && ok "create extract to dir" || bad "create extract to dir"
+"$RUFUX" create "$ISO" "$CDIR" --mode extract --real --yes >/dev/null 2>&1 \
+  && [ -f "$CDIR/README.txt" ] && [ -f "$CDIR/autorun.inf" ] && ok "create extract to dir" || bad "create extract to dir"
 truncate -s 64M "$IMG"
 "$RUFUX" create "$ISO" "$IMG" --mode extract --scheme gpt --fs vfat --dry-run --allow-file | grep -q "steps:" \
   && ok "create disk plan" || bad "create disk plan"

@@ -34,3 +34,19 @@ int rufux_extract_iso(const char *src, const char *dest_dir, int dry_run,
   snprintf(err, cap, "need bsdtar or 7z for extraction");
   return -1;
 }
+
+int rufux_write_autorun(const char *dir, const char *label, int dry_run,
+                        char *err, unsigned long cap) {
+  if (!label || !label[0]) label = "RUFUX";
+  char path[1024];
+  snprintf(path, sizeof path, "%s/autorun.inf", dir);
+  if (dry_run) {
+    fprintf(stderr, "+ write %s (label '%s')\n", path, label);
+    return 0;
+  }
+  FILE *f = fopen(path, "w");
+  if (!f) { snprintf(err, cap, "cannot write '%s': %s", path, strerror(errno)); return -1; }
+  fprintf(f, "[Autorun]\nLabel=%s\n", label);
+  if (fclose(f) != 0) { snprintf(err, cap, "cannot close '%s'", path); return -1; }
+  return 0;
+}

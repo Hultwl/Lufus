@@ -4,6 +4,7 @@
 typedef struct {
   const char *fs; // vfat|ntfs|exfat|ext4|udf
   const char *label; // may be NULL
+  int cluster_sectors; // 0 = default (vfat only: passed as mkfs.vfat -s)
   int dry_run;
   int allow_fixed;
   int allow_file;

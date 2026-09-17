@@ -1,10 +1,11 @@
-// Rufux GTK4 GUI — Phase 3 stable.
+// Rufux GTK4 GUI — Rufus main-dialog clone (behavioral port of
+// upstream Rufus IDD_DIALOG: drive properties, boot selection, image
+// option, partition/target, format options, status, START/CLOSE, log).
 #include "gui_gtk.h"
 #include "../linux/device.h"
 #include "../linux/iso_probe.h"
 #include "../linux/checksum.h"
-#include "../linux/writer.h"
-#include "../linux/extract.h"
+#include "../linux/create.h"
 #include "../linux/secureboot.h"
 #include "../linux/i18n.h"
 
@@ -13,17 +14,64 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <ctype.h>
+#include <sys/stat.h>
 
+// gtk_dialog_run() is gone in GTK4: nested-loop modal helper.
+typedef struct { GMainLoop *loop; int resp; } ModalCtx;
+static void modal_response(GtkDialog *d, int r, gpointer u) {
+  (void)d;
+  ModalCtx *c = (ModalCtx *)u;
+  c->resp = r;
+  g_main_loop_quit(c->loop);
+}
+static int run_modal(GtkWindow *parent, GtkWidget *dlg) {
+  ModalCtx c;
+  c.loop = g_main_loop_new(NULL, FALSE);
+  c.resp = GTK_RESPONSE_NONE;
+  gtk_window_set_transient_for(GTK_WINDOW(dlg), parent);
+  gtk_window_set_modal(GTK_WINDOW(dlg), TRUE);
+  g_signal_connect(dlg, "response", G_CALLBACK(modal_response), &c);
+  gtk_window_present(GTK_WINDOW(dlg));
+  g_main_loop_run(c.loop);
+  g_main_loop_unref(c.loop);
+  gtk_window_destroy(GTK_WINDOW(dlg));
+  return c.resp;
+}
+
+static GtkWidget *toplevel;
 static GtkWidget *log_view;
+static GtkWidget *log_box;
 static GtkWidget *dev_drop;
-static GtkWidget *mode_drop;
+static GtkWidget *boot_drop;
+static GtkWidget *image_drop;
 static GtkWidget *scheme_drop;
+static GtkWidget *target_drop;
 static GtkWidget *fs_drop;
+static GtkWidget *cluster_drop;
+static GtkWidget *passes_drop;
+static GtkWidget *label_entry;
+static GtkWidget *persist_spin;
 static GtkWidget *progress;
+static GtkWidget *status_label;
 static GtkWidget *sum_label;
 static GtkWidget *sb_label;
+static GtkWidget *adv_drive_box;
+static GtkWidget *adv_format_box;
+static GtkWidget *check_hdd;
+static GtkWidget *check_oldbios;
+static GtkWidget *check_uefi;
+static GtkWidget *check_quick;
+static GtkWidget *check_extlabel;
+static GtkWidget *check_badblocks;
+static GtkWidget *select_btn;
+static GtkWidget *hash_btn;
 static int opt_dark = -1; // -1 system, 0 light, 1 dark
+
 static char sel_iso[1024] = {0};
+static RufuxIsoInfo sel_info = {0};
+static int has_iso = 0;
 static RufuxDevice devs_cache[64];
 static int devs_n = 0;
 
@@ -35,26 +83,87 @@ static void gui_log(const char *msg) {
   gtk_text_buffer_insert(buf, &end, "\n", -1);
 }
 
+static void gui_status(const char *msg) {
+  gtk_label_set_text(GTK_LABEL(status_label), msg);
+}
+
+static GtkWidget *section(const char *title, GtkWidget *box) {
+  GtkWidget *l = gtk_label_new(NULL);
+  char m[128];
+  snprintf(m, sizeof m, "<b>%s</b>", title);
+  gtk_label_set_markup(GTK_LABEL(l), m);
+  gtk_label_set_xalign(GTK_LABEL(l), 0.0f);
+  gtk_box_append(GTK_BOX(box), l);
+  return l;
+}
+
+static GtkWidget *row_label(GtkWidget *box, const char *text) {
+  GtkWidget *l = gtk_label_new(_(text));
+  gtk_label_set_xalign(GTK_LABEL(l), 0.0f);
+  gtk_box_append(GTK_BOX(box), l);
+  return l;
+}
+
+static const char *drop_text(GtkWidget *drop, const char *fallback) {
+  GListModel *m = gtk_drop_down_get_model(GTK_DROP_DOWN(drop));
+  guint s = gtk_drop_down_get_selected(GTK_DROP_DOWN(drop));
+  if (!m || s == GTK_INVALID_LIST_POSITION) return fallback;
+  GtkStringObject *o = GTK_STRING_OBJECT(g_list_model_get_object(m, s));
+  return o ? gtk_string_object_get_string(o) : fallback;
+}
+
+// --- device scan (IDC_DEVICE) ---
 static void on_refresh(GtkButton *btn, gpointer u) {
   (void)btn; (void)u;
-  devs_n = rufux_list_devices(devs_cache, 64, 0);
+  int include_fixed = gtk_check_button_get_active(GTK_CHECK_BUTTON(check_hdd));
+  devs_n = rufux_list_devices(devs_cache, 64, include_fixed);
   if (devs_n < 0) devs_n = 0;
   GtkStringList *sl = gtk_string_list_new(NULL);
-  char tmp[256];
+  char tmp[300];
   for (int i = 0; i < devs_n; i++) {
-    snprintf(tmp, sizeof tmp, "%s  %s %s (%.1f GB)%s", devs_cache[i].devnode,
-             devs_cache[i].vendor, devs_cache[i].model,
-             devs_cache[i].size_bytes / 1073741824.0,
+    char hs[32];
+    rufux_human_size(devs_cache[i].size_bytes, hs, sizeof hs);
+    snprintf(tmp, sizeof tmp, "%s  %s %s (%s)%s", devs_cache[i].devnode,
+             devs_cache[i].vendor, devs_cache[i].model, hs,
              devs_cache[i].mounted ? " [MOUNTED]" : "");
     gtk_string_list_append(sl, tmp);
   }
   if (devs_n == 0)
     gtk_string_list_append(sl, _("(no removable devices — insert USB)"));
   gtk_drop_down_set_model(GTK_DROP_DOWN(dev_drop), G_LIST_MODEL(sl));
-  snprintf(tmp, sizeof tmp, "Found %d removable device(s).", devs_n);
+  snprintf(tmp, sizeof tmp, "%d devices found", devs_n);
   gui_log(tmp);
+  gui_status(_("READY"));
 }
 
+// --- boot selection (IDC_BOOT_SELECTION): Non bootable | Disk or ISO image ---
+static int boot_is_iso(void) {
+  const char *b = drop_text(boot_drop, "");
+  return strstr(b, "ISO") != NULL;
+}
+
+static void on_boot_changed(GtkDropDown *d, gpointer u) {
+  (void)d; (void)u;
+  int iso = boot_is_iso();
+  gtk_widget_set_sensitive(select_btn, iso);
+  gtk_widget_set_sensitive(hash_btn, iso && has_iso);
+  gtk_widget_set_sensitive(image_drop, iso);
+  gtk_widget_set_sensitive(persist_spin, iso);
+}
+
+static void sanitize_label(const char *in, const char *fs, char *out, size_t cap) {
+  size_t n = 0;
+  size_t max = (!strcmp(fs, "vfat")) ? 11 : 32;
+  for (size_t i = 0; in[i] && n + 1 < cap && n < max; i++) {
+    char c = in[i];
+    if (c == ' ') c = '_';
+    if (isalnum((unsigned char)c) || c == '_' || c == '-') out[n++] = toupper((unsigned char)c);
+  }
+  out[n] = 0;
+  if (!n) snprintf(out, cap, "RUFUX");
+}
+
+// --- SELECT (IDC_SELECT): pick image ---
 static void on_iso_response(GtkNativeDialog *d, int r, gpointer w) {
   (void)w;
   if (r == GTK_RESPONSE_ACCEPT) {
@@ -63,16 +172,24 @@ static void on_iso_response(GtkNativeDialog *d, int r, gpointer w) {
     char *p = gf ? g_file_get_path(gf) : NULL;
     if (p) {
       snprintf(sel_iso, sizeof sel_iso, "%s", p);
-      RufuxIsoInfo info = {0};
-      char msg[1024];
-      if (rufux_probe_iso_detail(p, &info) == 0) {
+      char msg[1408];
+      if (rufux_probe_iso_detail(p, &sel_info) == 0) {
+        has_iso = 1;
         snprintf(msg, sizeof msg, "ISO: %s\n  label='%s' size=%.1f MB valid=%s boot=%s",
-                 p, info.label[0] ? info.label : "(none)",
-                 info.size_bytes / 1048576.0,
-                 info.valid_iso ? "yes" : "no", info.bootable ? "yes" : "no");
+                 p, sel_info.label[0] ? sel_info.label : "(none)",
+                 sel_info.size_bytes / 1048576.0,
+                 sel_info.valid_iso ? "yes" : "no", sel_info.bootable ? "yes" : "no");
         gui_log(msg);
-        // quick checksum for small files only (<256MB) to avoid UI freeze
-        if (info.size_bytes < (256ull << 20)) {
+        // Rufus behavior: volume label defaults to the image label
+        char lab[64];
+        sanitize_label(sel_info.label[0] ? sel_info.label : "RUFUX", "vfat", lab, sizeof lab);
+        gtk_editable_set_text(GTK_EDITABLE(label_entry), lab);
+        // Default image mode: DD for bootable hybrids, ISO otherwise
+        if (sel_info.bootable)
+          gtk_drop_down_set_selected(GTK_DROP_DOWN(image_drop), 0);
+        else
+          gtk_drop_down_set_selected(GTK_DROP_DOWN(image_drop), 1);
+        if (sel_info.size_bytes < (256ull << 20)) {
           unsigned char sum[32];
           char err[256] = {0};
           if (rufux_sha256_file(p, sum, NULL, NULL, err, sizeof err) == 0) {
@@ -81,14 +198,11 @@ static void on_iso_response(GtkNativeDialog *d, int r, gpointer w) {
             char s[128];
             snprintf(s, sizeof s, "SHA-256: %.16s…", hex);
             gtk_label_set_text(GTK_LABEL(sum_label), s);
-            snprintf(msg, sizeof msg, "SHA-256: %s", hex);
-            gui_log(msg);
-          } else {
-            gtk_label_set_text(GTK_LABEL(sum_label), "SHA-256: (error)");
           }
         } else {
-          gtk_label_set_text(GTK_LABEL(sum_label), _("SHA-256: (large file — use CLI)"));
+          gtk_label_set_text(GTK_LABEL(sum_label), _("SHA-256: (large file — use # button)"));
         }
+        gtk_widget_set_sensitive(hash_btn, TRUE);
       } else {
         gui_log("Cannot probe selected file.");
       }
@@ -100,154 +214,444 @@ static void on_iso_response(GtkNativeDialog *d, int r, gpointer w) {
   g_object_unref(d);
 }
 
-static void on_iso(GtkButton *btn, gpointer win) {
+static void on_select(GtkButton *btn, gpointer win) {
   (void)btn;
   GtkFileChooserNative *fc = gtk_file_chooser_native_new(
-      "Select ISO", GTK_WINDOW(win), GTK_FILE_CHOOSER_ACTION_OPEN, "_Open", "_Cancel");
+      "Select image", GTK_WINDOW(win), GTK_FILE_CHOOSER_ACTION_OPEN, "_Open", "_Cancel");
   GtkFileFilter *f = gtk_file_filter_new();
   gtk_file_filter_add_pattern(f, "*.iso");
   gtk_file_filter_add_pattern(f, "*.img");
+  gtk_file_filter_add_pattern(f, "*.vhd");
   gtk_file_chooser_add_filter(GTK_FILE_CHOOSER(fc), f);
   gtk_native_dialog_show(GTK_NATIVE_DIALOG(fc));
   g_signal_connect(fc, "response", G_CALLBACK(on_iso_response), win);
 }
 
-static void write_progress_cb(unsigned long long done, unsigned long long total, void *u) {
+// --- checksum (IDC_HASH): SHA-256 dialog ---
+static void on_hash(GtkButton *btn, gpointer win) {
+  (void)btn;
+  if (!has_iso) return;
+  gui_log("Computing SHA-256...");
+  while (g_main_context_iteration(NULL, FALSE)) {}
+  unsigned char sum[32];
+  char err[256] = {0};
+  if (rufux_sha256_file(sel_iso, sum, NULL, NULL, err, sizeof err) != 0) {
+    GtkWidget *e = gtk_message_dialog_new(GTK_WINDOW(win), GTK_DIALOG_MODAL,
+        GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE, "Checksum failed: %s", err);
+    g_signal_connect(e, "response", G_CALLBACK(gtk_window_destroy), NULL);
+    gtk_window_present(GTK_WINDOW(e));
+    return;
+  }
+  char hex[65];
+  rufux_hex32(sum, hex);
+  char full[1600];
+  snprintf(full, sizeof full, "SHA-256:\n%s\n\n%s", hex, sel_iso);
+  gui_log(full);
+  GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(win), GTK_DIALOG_MODAL,
+      GTK_MESSAGE_INFO, GTK_BUTTONS_CLOSE, "SHA-256:\n%s", hex);
+  g_signal_connect(dlg, "response", G_CALLBACK(gtk_window_destroy), NULL);
+  gtk_window_present(GTK_WINDOW(dlg));
+}
+
+// --- advanced toggles (IDC_ADVANCED_*) ---
+static void on_adv_drive(GtkCheckButton *b, gpointer u) {
+  (void)u;
+  gtk_widget_set_visible(adv_drive_box, gtk_check_button_get_active(b));
+}
+
+static void on_adv_format(GtkCheckButton *b, gpointer u) {
+  (void)u;
+  gtk_widget_set_visible(adv_format_box, gtk_check_button_get_active(b));
+}
+
+static void on_hdd_toggled(GtkCheckButton *b, gpointer u) {
+  (void)b; (void)u;
+  on_refresh(NULL, NULL); // rescan with/without fixed disks
+}
+
+// --- progress/log plumbing for rufux_create ---
+static void create_progress_cb(unsigned long long done, unsigned long long total, void *u) {
   (void)u;
   if (total) gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress), (double)done / (double)total);
   while (g_main_context_iteration(NULL, FALSE)) {}
 }
 
-static const char *drop_text(GtkWidget *drop, const char *fallback) {
-  GListModel *m = gtk_drop_down_get_model(GTK_DROP_DOWN(drop));
-  guint s = gtk_drop_down_get_selected(GTK_DROP_DOWN(drop));
-  if (!m || s == GTK_INVALID_LIST_POSITION) return fallback;
-  GtkStringObject *o = GTK_STRING_OBJECT(g_list_model_get_object(m, s));
-  return o ? gtk_string_object_get_string(o) : fallback;
+static void create_log_cb(const char *msg, void *u) {
+  (void)u;
+  gui_log(msg);
+  while (g_main_context_iteration(NULL, FALSE)) {}
 }
 
-static void on_start(GtkButton *b, gpointer u) {
-  (void)b; (void)u;
-  if (!sel_iso[0]) { gui_log(_("Select an ISO first.")); return; }
+static int parse_cluster_sectors(const char *s) {
+  unsigned v = 0;
+  if (!s || strstr(s, "Default")) return 0;
+  if (sscanf(s, "%u", &v) != 1 || v < 512) return 0;
+  return (int)(v / 512);
+}
+
+// --- START (IDC_START), Rufus MSG_003 warning included ---
+static void on_start(GtkButton *b, gpointer win) {
+  (void)b;
   if (devs_n == 0) { gui_log(_("No removable device. Insert USB and Refresh.")); return; }
   guint sel = gtk_drop_down_get_selected(GTK_DROP_DOWN(dev_drop));
   if (sel >= (guint)devs_n) { gui_log(_("Select a device first.")); return; }
   const char *dst = devs_cache[sel].devnode;
-  const char *mode = drop_text(mode_drop, "dd");
-  const char *scheme = drop_text(scheme_drop, "gpt");
-  const char *fs = drop_text(fs_drop, "vfat");
-  // keep values short: dropdown shows "dd — direct image" etc.
-  char mode_s[16] = {0}, scheme_s[16] = {0}, fs_s[16] = {0};
-  sscanf(mode, "%15s", mode_s); sscanf(scheme, "%15s", scheme_s); sscanf(fs, "%15s", fs_s);
-  char msg[1408];
-  snprintf(msg, sizeof msg, "Plan: %s -> %s [mode=%s scheme=%s fs=%s] (dry-run, no writes)",
-           sel_iso, dst, mode_s, scheme_s, fs_s);
-  gui_log(msg);
-  gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress), 0.0);
-  if (!strncmp(mode_s, "extract", 7)) {
-    char err[512] = {0};
-    // dry-run extract plan against a temp dir probe (no writes to USB)
-    char tmp[] = "/tmp/rufux-gui-XXXXXX";
-    if (!mkdtemp(tmp)) { gui_log("tmpdir failed"); return; }
-    int rc = rufux_extract_iso(sel_iso, tmp, 1, err, sizeof err);
-    rmdir(tmp);
-    if (rc == 0) {
-      gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress), 1.0);
-      gui_log("Extract dry-run OK. Real: CLI 'create SRC MNT --mode extract --real'.");
-    } else {
-      snprintf(msg, sizeof msg, "Extract plan failed: %s", err);
-      gui_log(msg);
-    }
+  int iso_mode = boot_is_iso();
+  if (iso_mode && !has_iso) { gui_log(_("Select an ISO first.")); return; }
+
+  const char *scheme_s = drop_text(scheme_drop, "GPT");
+  const char *target_s = drop_text(target_drop, "BIOS or UEFI");
+  const char *fs_s = drop_text(fs_drop, "FAT32");
+  const char *img_s = drop_text(image_drop, "Write in DD Image mode");
+  // Rufus behavior: UEFI (non CSM) forces GPT
+  char scheme[16] = {0};
+  if (!strncmp(scheme_s, "GPT", 3)) snprintf(scheme, sizeof scheme, "gpt");
+  else snprintf(scheme, sizeof scheme, "dos");
+  if (strstr(target_s, "UEFI (non CSM)") && !strcmp(scheme, "dos")) {
+    snprintf(scheme, sizeof scheme, "gpt");
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(scheme_drop), 0);
+    gui_log("Target is UEFI (non CSM): partition scheme forced to GPT.");
+  }
+  char fs[16] = {0};
+  if (!strcmp(fs_s, "FAT32")) snprintf(fs, sizeof fs, "vfat");
+  else if (!strcmp(fs_s, "NTFS")) snprintf(fs, sizeof fs, "ntfs");
+  else if (!strcmp(fs_s, "exFAT")) snprintf(fs, sizeof fs, "exfat");
+  else if (!strcmp(fs_s, "UDF")) snprintf(fs, sizeof fs, "udf");
+  else snprintf(fs, sizeof fs, "ext4");
+  char label[64];
+  const char *entry = gtk_editable_get_text(GTK_EDITABLE(label_entry));
+  sanitize_label(entry[0] ? entry : "RUFUX", fs, label, sizeof label);
+
+  RufuxCreateOpts o;
+  rufux_create_defaults(&o);
+  o.scheme = scheme;
+  o.fs = fs;
+  o.label = label;
+  o.persist_mb = (unsigned long)gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(persist_spin));
+  o.cluster_sectors = parse_cluster_sectors(drop_text(cluster_drop, "Default"));
+  o.quick_format = gtk_check_button_get_active(GTK_CHECK_BUTTON(check_quick));
+  o.extended_label = gtk_check_button_get_active(GTK_CHECK_BUTTON(check_extlabel));
+  o.uefi_validate = gtk_check_button_get_active(GTK_CHECK_BUTTON(check_uefi));
+  o.badblock_passes = gtk_check_button_get_active(GTK_CHECK_BUTTON(check_badblocks))
+      ? (int)gtk_drop_down_get_selected(GTK_DROP_DOWN(passes_drop)) + 1 : 0;
+  o.allow_fixed = gtk_check_button_get_active(GTK_CHECK_BUTTON(check_hdd));
+  o.verify = 1;
+  o.dry_run = 0;
+  o.yes = 1;
+  if (!iso_mode) {
+    o.mode = "format";
+  } else if (!strncmp(img_s, "Write in ISO", 12)) {
+    o.mode = "extract";
+  } else {
+    o.mode = "dd";
+  }
+  const char *src = iso_mode ? sel_iso : NULL;
+
+  // MSG_003: the Rufus point-of-no-return warning
+  char warn[1152];
+  snprintf(warn, sizeof warn,
+           "WARNING: ALL DATA ON DEVICE '%s' WILL BE DESTROYED.\n"
+           "To continue with this operation, click OK. To quit click CANCEL.", dst);
+  GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(win), GTK_DIALOG_MODAL,
+      GTK_MESSAGE_WARNING, GTK_BUTTONS_OK_CANCEL, "%s", warn);
+  int answer = run_modal(GTK_WINDOW(win), dlg);
+  if (answer != GTK_RESPONSE_OK) {
+    gui_log("Cancelled.");
+    gui_status(_("READY"));
     return;
   }
-  RufuxWriteOpts o = {.dry_run = 1, .verify = 0};
-  char err[512] = {0};
-  int rc = rufux_write_image(sel_iso, dst, &o, write_progress_cb, NULL, err, sizeof err);
+
+  // Privilege gate: block devices need root (restart hint, like pkexec flows)
+  struct stat st;
+  if (stat(dst, &st) == 0 && S_ISBLK(st.st_mode) && geteuid() != 0) {
+    GtkWidget *e = gtk_message_dialog_new(GTK_WINDOW(win), GTK_DIALOG_MODAL,
+        GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE,
+        "Block devices need root.\nRestart Rufux with:\n  sudo rufux --gui\nor run the CLI:\n  sudo rufux create ... --real --yes");
+    g_signal_connect(e, "response", G_CALLBACK(gtk_window_destroy), NULL);
+    gtk_window_present(GTK_WINDOW(e));
+    gui_log("Blocked: need root for block devices.");
+    return;
+  }
+
+  gui_status("Working...");
+  gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress), 0.0);
+  char err[1024] = {0};
+  int rc = rufux_create(src, dst, &o, create_progress_cb, NULL,
+                        create_log_cb, NULL, err, sizeof err);
   if (rc != 0) {
-    snprintf(msg, sizeof msg, "Target check: %s — simulating source read only.", err);
-    gui_log(msg);
-    unsigned char sum[32];
-    char e2[256] = {0};
-    if (rufux_sha256_file(sel_iso, sum, (RufuxHashProgress)write_progress_cb, NULL, e2, sizeof e2) == 0) {
-      gui_log("Dry-run read OK (source verified readable).");
-      gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress), 1.0);
-      return;
-    }
-    snprintf(msg, sizeof msg, "Dry-run failed: %s", err);
-    gui_log(msg);
+    char m[1152];
+    snprintf(m, sizeof m, "Failed: %s", err[0] ? err : "unknown error");
+    gui_log(m);
+    gui_status("Failed");
+    GtkWidget *e = gtk_message_dialog_new(GTK_WINDOW(win), GTK_DIALOG_MODAL,
+        GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE, "Failed:\n%s", err);
+    g_signal_connect(e, "response", G_CALLBACK(gtk_window_destroy), NULL);
+    gtk_window_present(GTK_WINDOW(e));
     return;
   }
   gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress), 1.0);
-  gui_log("Dry-run OK — no bytes written. Real: CLI with --real --yes (see create).");
+  gui_status(_("READY"));
+}
+
+static void on_close(GtkButton *b, gpointer u) {
+  (void)b;
+  GApplication *app = G_APPLICATION(u);
+  g_application_quit(app);
+}
+
+static void on_log_toggle(GtkToggleButton *b, gpointer u) {
+  (void)u;
+  gtk_widget_set_visible(log_box, gtk_toggle_button_get_active(b));
+}
+
+static void on_log_clear(GtkButton *b, gpointer u) {
+  (void)b; (void)u;
+  GtkTextBuffer *buf = gtk_text_view_get_buffer(GTK_TEXT_VIEW(log_view));
+  gtk_text_buffer_set_text(buf, "", -1);
+}
+
+static void on_log_save_response(GtkNativeDialog *d, int r, gpointer w) {
+  (void)w;
+  if (r == GTK_RESPONSE_ACCEPT) {
+    GListModel *files = gtk_file_chooser_get_files(GTK_FILE_CHOOSER(d));
+    GFile *gf = G_FILE(g_list_model_get_object(files, 0));
+    char *p = gf ? g_file_get_path(gf) : NULL;
+    if (p) {
+      GtkTextBuffer *buf = gtk_text_view_get_buffer(GTK_TEXT_VIEW(log_view));
+      GtkTextIter a, z;
+      gtk_text_buffer_get_bounds(buf, &a, &z);
+      char *txt = gtk_text_buffer_get_text(buf, &a, &z, FALSE);
+      FILE *f = fopen(p, "w");
+      if (f) { fputs(txt, f); fclose(f); gui_log("Log saved."); }
+      else gui_log("Cannot save log.");
+      g_free(txt);
+      g_free(p);
+    }
+    if (gf) g_object_unref(gf);
+    g_object_unref(files);
+  }
+  g_object_unref(d);
+}
+
+static void on_log_save(GtkButton *b, gpointer win) {
+  (void)b;
+  GtkFileChooserNative *fc = gtk_file_chooser_native_new(
+      "Save log", GTK_WINDOW(win), GTK_FILE_CHOOSER_ACTION_SAVE, "_Save", "_Cancel");
+  gtk_file_chooser_set_current_name(GTK_FILE_CHOOSER(fc), "rufux.log");
+  gtk_native_dialog_show(GTK_NATIVE_DIALOG(fc));
+  g_signal_connect(fc, "response", G_CALLBACK(on_log_save_response), win);
+}
+
+static GtkWidget *hrow(GtkWidget *box) {
+  GtkWidget *r = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  gtk_box_append(GTK_BOX(box), r);
+  return r;
 }
 
 static void activate(GtkApplication *app, gpointer u) {
   (void)u;
-  GtkWidget *win = gtk_application_window_new(app);
-  gtk_window_set_title(GTK_WINDOW(win), _("Rufux — USB Creator (Linux)"));
-  gtk_window_set_default_size(GTK_WINDOW(win), 600, 570);
+  toplevel = gtk_application_window_new(app);
+  gtk_window_set_title(GTK_WINDOW(toplevel), _("Rufux — USB Creator (Linux)"));
+  gtk_window_set_default_size(GTK_WINDOW(toplevel), 520, 720);
   if (opt_dark >= 0) {
     GtkSettings *st = gtk_settings_get_default();
     if (st) g_object_set(st, "gtk-application-prefer-dark-theme", opt_dark ? TRUE : FALSE, NULL);
   }
-  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
-  gtk_widget_set_margin_top(box, 12); gtk_widget_set_margin_bottom(box, 12);
-  gtk_widget_set_margin_start(box, 12); gtk_widget_set_margin_end(box, 12);
-  gtk_window_set_child(GTK_WINDOW(win), box);
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+  gtk_widget_set_margin_top(box, 10); gtk_widget_set_margin_bottom(box, 10);
+  gtk_widget_set_margin_start(box, 10); gtk_widget_set_margin_end(box, 10);
+  gtk_window_set_child(GTK_WINDOW(toplevel), box);
 
-  GtkWidget *dev_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-  dev_drop = gtk_drop_down_new(NULL, NULL);
-  gtk_widget_set_hexpand(dev_drop, TRUE);
-  GtkWidget *ref = gtk_button_new_with_label(_("Refresh"));
-  g_signal_connect(ref, "clicked", G_CALLBACK(on_refresh), NULL);
-  gtk_box_append(GTK_BOX(dev_row), dev_drop);
-  gtk_box_append(GTK_BOX(dev_row), ref);
-  gtk_box_append(GTK_BOX(box), dev_row);
+  // ---- Drive Properties ----
+  section("Drive Properties", box);
+  row_label(box, "Device");
+  {
+    GtkWidget *r = hrow(box);
+    dev_drop = gtk_drop_down_new(NULL, NULL);
+    gtk_widget_set_hexpand(dev_drop, TRUE);
+    GtkWidget *ref = gtk_button_new_with_label(_("Refresh"));
+    g_signal_connect(ref, "clicked", G_CALLBACK(on_refresh), NULL);
+    gtk_box_append(GTK_BOX(r), dev_drop);
+    gtk_box_append(GTK_BOX(r), ref);
+  }
+  row_label(box, "Boot selection");
+  {
+    GtkWidget *r = hrow(box);
+    const char *opts[] = {"Disk or ISO image (Please select)", "Non bootable", "Disk or ISO image", NULL};
+    boot_drop = gtk_drop_down_new_from_strings(opts);
+    gtk_widget_set_hexpand(boot_drop, TRUE);
+    g_signal_connect(boot_drop, "notify::selected", G_CALLBACK(on_boot_changed), NULL);
+    select_btn = gtk_button_new_with_label("SELECT");
+    g_signal_connect(select_btn, "clicked", G_CALLBACK(on_select), toplevel);
+    hash_btn = gtk_button_new_with_label("#");
+    gtk_widget_set_sensitive(hash_btn, FALSE);
+    g_signal_connect(hash_btn, "clicked", G_CALLBACK(on_hash), toplevel);
+    gtk_box_append(GTK_BOX(r), boot_drop);
+    gtk_box_append(GTK_BOX(r), select_btn);
+    gtk_box_append(GTK_BOX(r), hash_btn);
+  }
+  row_label(box, "Image option");
+  {
+    GtkWidget *r = hrow(box);
+    const char *opts[] = {"Write in DD Image mode", "Write in ISO Image mode", NULL};
+    image_drop = gtk_drop_down_new_from_strings(opts);
+    gtk_widget_set_hexpand(image_drop, TRUE);
+    gtk_box_append(GTK_BOX(r), image_drop);
+    GtkWidget *pl = gtk_label_new("Persistence (MB):");
+    persist_spin = gtk_spin_button_new_with_range(0, 16384, 256);
+    gtk_box_append(GTK_BOX(r), pl);
+    gtk_box_append(GTK_BOX(r), persist_spin);
+  }
+  {
+    GtkWidget *r = hrow(box);
+    GtkWidget *bl = gtk_label_new("Partition scheme");
+    gtk_widget_set_hexpand(bl, TRUE);
+    gtk_label_set_xalign(GTK_LABEL(bl), 0.0f);
+    GtkWidget *tl = gtk_label_new("Target system");
+    gtk_widget_set_hexpand(tl, TRUE);
+    gtk_label_set_xalign(GTK_LABEL(tl), 0.0f);
+    gtk_box_append(GTK_BOX(r), bl);
+    gtk_box_append(GTK_BOX(r), tl);
+  }
+  {
+    GtkWidget *r = hrow(box);
+    const char *ps[] = {"GPT", "MBR", NULL};
+    scheme_drop = gtk_drop_down_new_from_strings(ps);
+    gtk_widget_set_hexpand(scheme_drop, TRUE);
+    const char *ts[] = {"BIOS or UEFI", "BIOS (or UEFI-CSM)", "UEFI (non CSM)", NULL};
+    target_drop = gtk_drop_down_new_from_strings(ts);
+    gtk_widget_set_hexpand(target_drop, TRUE);
+    gtk_box_append(GTK_BOX(r), scheme_drop);
+    gtk_box_append(GTK_BOX(r), target_drop);
+  }
+  {
+    GtkWidget *adv = gtk_check_button_new_with_label("Show advanced drive properties");
+    g_signal_connect(adv, "toggled", G_CALLBACK(on_adv_drive), NULL);
+    gtk_box_append(GTK_BOX(box), adv);
+    adv_drive_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    gtk_widget_set_visible(adv_drive_box, FALSE);
+    check_hdd = gtk_check_button_new_with_label("List USB Hard Drives");
+    g_signal_connect(check_hdd, "toggled", G_CALLBACK(on_hdd_toggled), NULL);
+    check_oldbios = gtk_check_button_new_with_label("Add fixes for old BIOSes (extra partition, align, etc.)");
+    check_uefi = gtk_check_button_new_with_label("Enable runtime UEFI media validation");
+    gtk_box_append(GTK_BOX(adv_drive_box), check_hdd);
+    gtk_box_append(GTK_BOX(adv_drive_box), check_oldbios);
+    gtk_box_append(GTK_BOX(adv_drive_box), check_uefi);
+    gtk_box_append(GTK_BOX(box), adv_drive_box);
+  }
 
-  GtkWidget *iso_btn = gtk_button_new_with_label(_("Select ISO / IMG…"));
-  g_signal_connect(iso_btn, "clicked", G_CALLBACK(on_iso), win);
-  gtk_box_append(GTK_BOX(box), iso_btn);
+  // ---- Format Options ----
+  section("Format Options", box);
+  row_label(box, "Volume label");
+  label_entry = gtk_entry_new();
+  gtk_editable_set_text(GTK_EDITABLE(label_entry), "RUFUX");
+  gtk_entry_set_max_length(GTK_ENTRY(label_entry), 32);
+  gtk_box_append(GTK_BOX(box), label_entry);
+  {
+    GtkWidget *r = hrow(box);
+    GtkWidget *fl = gtk_label_new("File system");
+    gtk_widget_set_hexpand(fl, TRUE);
+    gtk_label_set_xalign(GTK_LABEL(fl), 0.0f);
+    GtkWidget *cl = gtk_label_new("Cluster size");
+    gtk_widget_set_hexpand(cl, TRUE);
+    gtk_label_set_xalign(GTK_LABEL(cl), 0.0f);
+    gtk_box_append(GTK_BOX(r), fl);
+    gtk_box_append(GTK_BOX(r), cl);
+  }
+  {
+    GtkWidget *r = hrow(box);
+    const char *fss[] = {"FAT32", "NTFS", "exFAT", "UDF", "ext4", NULL};
+    fs_drop = gtk_drop_down_new_from_strings(fss);
+    gtk_widget_set_hexpand(fs_drop, TRUE);
+    const char *cs[] = {"Default", "512 bytes", "1024 bytes", "2048 bytes",
+                        "4096 bytes", "8192 bytes", "16 kilobytes",
+                        "32 kilobytes", "64 kilobytes", NULL};
+    cluster_drop = gtk_drop_down_new_from_strings(cs);
+    gtk_widget_set_hexpand(cluster_drop, TRUE);
+    gtk_box_append(GTK_BOX(r), fs_drop);
+    gtk_box_append(GTK_BOX(r), cluster_drop);
+  }
+  {
+    GtkWidget *adv = gtk_check_button_new_with_label("Show advanced format options");
+    g_signal_connect(adv, "toggled", G_CALLBACK(on_adv_format), NULL);
+    gtk_box_append(GTK_BOX(box), adv);
+    adv_format_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
+    gtk_widget_set_visible(adv_format_box, FALSE);
+    check_quick = gtk_check_button_new_with_label("Quick format");
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(check_quick), TRUE);
+    check_extlabel = gtk_check_button_new_with_label("Create extended label and icon files");
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(check_extlabel), TRUE);
+    GtkWidget *r = hrow(adv_format_box);
+    check_badblocks = gtk_check_button_new_with_label("Check device for bad blocks");
+    const char *np[] = {"1 pass", "2 passes", "3 passes", "4 passes", NULL};
+    passes_drop = gtk_drop_down_new_from_strings(np);
+    gtk_box_append(GTK_BOX(r), check_badblocks);
+    gtk_box_append(GTK_BOX(r), passes_drop);
+    gtk_box_append(GTK_BOX(adv_format_box), check_quick);
+    gtk_box_append(GTK_BOX(adv_format_box), check_extlabel);
+    gtk_box_append(GTK_BOX(box), adv_format_box);
+  }
 
+  // ---- Status ----
+  section("Status", box);
   sum_label = gtk_label_new(_("SHA-256: (no ISO)"));
   gtk_label_set_xalign(GTK_LABEL(sum_label), 0.0f);
   gtk_box_append(GTK_BOX(box), sum_label);
-
-  char sb_txt[128];
-  snprintf(sb_txt, sizeof sb_txt, "Secure Boot: %s", rufux_sb_string(rufux_sb_state()));
-  sb_label = gtk_label_new(sb_txt);
-  gtk_label_set_xalign(GTK_LABEL(sb_label), 0.0f);
-  gtk_box_append(GTK_BOX(box), sb_label);
-
-  GtkWidget *opt_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
-  const char *modes[] = {"dd — direct image", "extract — UEFI files", NULL};
-  const char *schemes[] = {"gpt", "dos", NULL};
-  const char *fss[] = {"vfat", "ntfs", "exfat", "ext4", NULL};
-  mode_drop = gtk_drop_down_new_from_strings(modes);
-  scheme_drop = gtk_drop_down_new_from_strings(schemes);
-  fs_drop = gtk_drop_down_new_from_strings(fss);
-  gtk_widget_set_hexpand(mode_drop, TRUE);
-  gtk_box_append(GTK_BOX(opt_row), mode_drop);
-  gtk_box_append(GTK_BOX(opt_row), scheme_drop);
-  gtk_box_append(GTK_BOX(opt_row), fs_drop);
-  gtk_box_append(GTK_BOX(box), opt_row);
-
+  {
+    char sb_txt[128];
+    snprintf(sb_txt, sizeof sb_txt, "Secure Boot: %s", rufux_sb_string(rufux_sb_state()));
+    sb_label = gtk_label_new(sb_txt);
+    gtk_label_set_xalign(GTK_LABEL(sb_label), 0.0f);
+    gtk_box_append(GTK_BOX(box), sb_label);
+  }
+  status_label = gtk_label_new(_("READY"));
+  gtk_label_set_xalign(GTK_LABEL(status_label), 0.0f);
+  gtk_box_append(GTK_BOX(box), status_label);
   progress = gtk_progress_bar_new();
   gtk_box_append(GTK_BOX(box), progress);
 
+  {
+    GtkWidget *r = hrow(box);
+    GtkWidget *logbtn = gtk_toggle_button_new_with_label("Log");
+    gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(logbtn), TRUE);
+    g_signal_connect(logbtn, "toggled", G_CALLBACK(on_log_toggle), NULL);
+    GtkWidget *start = gtk_button_new_with_label("START");
+    gtk_widget_set_hexpand(start, TRUE);
+    g_signal_connect(start, "clicked", G_CALLBACK(on_start), toplevel);
+    GtkWidget *close = gtk_button_new_with_label("CLOSE");
+    g_signal_connect(close, "clicked", G_CALLBACK(on_close), app);
+    gtk_box_append(GTK_BOX(r), logbtn);
+    gtk_box_append(GTK_BOX(r), start);
+    gtk_box_append(GTK_BOX(r), close);
+  }
+
+  log_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 4);
   GtkWidget *scroll = gtk_scrolled_window_new();
   gtk_widget_set_vexpand(scroll, TRUE);
+  gtk_widget_set_size_request(scroll, -1, 140);
   log_view = gtk_text_view_new();
   gtk_text_view_set_editable(GTK_TEXT_VIEW(log_view), FALSE);
+  gtk_text_view_set_monospace(GTK_TEXT_VIEW(log_view), TRUE);
   gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(scroll), log_view);
-  gtk_box_append(GTK_BOX(box), scroll);
+  gtk_box_append(GTK_BOX(log_box), scroll);
+  {
+    GtkWidget *r = hrow(log_box);
+    GtkWidget *sp = gtk_label_new(NULL);
+    gtk_widget_set_hexpand(sp, TRUE);
+    GtkWidget *clr = gtk_button_new_with_label("Clear");
+    g_signal_connect(clr, "clicked", G_CALLBACK(on_log_clear), NULL);
+    GtkWidget *sav = gtk_button_new_with_label("Save");
+    g_signal_connect(sav, "clicked", G_CALLBACK(on_log_save), toplevel);
+    gtk_box_append(GTK_BOX(r), sp);
+    gtk_box_append(GTK_BOX(r), clr);
+    gtk_box_append(GTK_BOX(r), sav);
+  }
+  gtk_box_append(GTK_BOX(box), log_box);
 
-  GtkWidget *start = gtk_button_new_with_label(_("Start (dry-run, safe)"));
-  g_signal_connect(start, "clicked", G_CALLBACK(on_start), NULL);
-  gtk_box_append(GTK_BOX(box), start);
-
-  gtk_window_present(GTK_WINDOW(win));
+  gtk_window_present(GTK_WINDOW(toplevel));
   on_refresh(NULL, NULL);
-  gui_log("Rufux stable ready. Real block flows: CLI 'create' with --real --yes.");
+  on_boot_changed(NULL, NULL);
+  gui_log("Rufux ready. Select a device and an image, then press START.");
 }
 
 int rufux_gui_run(int argc, char **argv) {

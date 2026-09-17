@@ -18,12 +18,16 @@ int rufux_format(const char *dst, const RufuxMkfsOpts *o,
   const char **av = NULL;
 
   // build argv with optional label + target (static buffers, small)
-  static char lab_vfat[160], lab_ntfs[160], lab_exfat[160], lab_ext4[160];
-  static const char *a_vfat[7], *a_ntfs[7], *a_exfat[5], *a_ext4[7], *a_udf[4];
+  static char lab_vfat[160], lab_ntfs[160], lab_exfat[160], lab_ext4[160], sec_vfat[32];
+  static const char *a_vfat[9], *a_ntfs[7], *a_exfat[5], *a_ext4[7], *a_udf[4];
   if (!strcmp(o->fs, "vfat") || !strcmp(o->fs, "fat32")) {
     if (!rufux_have("/usr/bin/mkfs.vfat")) { snprintf(err, cap, "mkfs.vfat missing"); return -1; }
     int i = 0;
     a_vfat[i++] = "/usr/bin/mkfs.vfat"; a_vfat[i++] = "-F"; a_vfat[i++] = "32";
+    if (o->cluster_sectors > 0) {
+      snprintf(sec_vfat, sizeof sec_vfat, "%d", o->cluster_sectors);
+      a_vfat[i++] = "-s"; a_vfat[i++] = sec_vfat;
+    }
     if (o->label && o->label[0]) { snprintf(lab_vfat, sizeof lab_vfat, "%s", o->label); a_vfat[i++] = "-n"; a_vfat[i++] = lab_vfat; }
     a_vfat[i++] = dst; a_vfat[i] = NULL; av = a_vfat;
     (void)argv_vfat;

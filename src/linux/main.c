@@ -20,6 +20,7 @@
 #include "linux/update.h"
 #include "linux/exec.h"
 #include "linux/i18n.h"
+#include "linux/create.h"
 #include "gui/gui_gtk.h"
 
 #ifndef RUFUX_VERSION
@@ -43,7 +44,7 @@ static void usage(const char *p) {
          "  %s secureboot-status\n"
          "  %s validate-efi FILE\n"
          "  %s update-check\n"
-         "  %s create SRC DST --mode dd|extract [--scheme gpt|dos] [--fs vfat|ntfs|exfat|ext4] [--label L] [--persist-mb N] [--dry-run|--real] [--allow-file] [--allow-fixed] [--yes] [--verify]\n"
+         "  %s create SRC|none DST --mode dd|extract|format [--scheme gpt|dos] [--fs vfat|ntfs|exfat|ext4|udf] [--label L] [--persist-mb N] [--cluster-sectors N] [--badblock-passes N] [--quick|--full] [--no-autorun] [--uefi-validate] [--dry-run|--real] [--allow-file] [--allow-fixed] [--yes] [--verify]\n"
          "  %s --gui [--theme system|dark|light]\n",
          RUFUX_VERSION, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p);
 }
@@ -59,64 +60,12 @@ static void cli_progress(unsigned long long done, unsigned long long total, void
   }
 }
 
-static int is_dir(const char *p) {
-  struct stat st;
-  return stat(p, &st) == 0 && S_ISDIR(st.st_mode);
+static void cli_clog(const char *m, void *u) {
+  (void)u;
+  printf("%s\n", m);
 }
 
-// End-to-end UEFI file flow on a whole disk (Phase 3):
-// partition -> mkfs part1 -> udisks2 mount -> extract -> persist -> unmount -> MBR.
-static int create_disk_extract(const char *src, const char *dst,
-                               const char *scheme, const char *fs, const char *label,
-                               unsigned long persist_mb, int dry,
-                               int allow_fixed, char *err, unsigned long errcap) {
-  char p1[160];
-  rufux_part1(dst, p1, sizeof p1);
-  printf("steps:\n  1. partition %s %s/esp+main (sfdisk)\n  2. format %s %s [%s]\n"
-         "  3. mount %s (udisks2) + extract %s\n",
-         dst, scheme, p1, fs, label, p1, src);
-  if (persist_mb) printf("  4. persist casper-rw %luMB\n", persist_mb);
-  printf("  5. install-boot %s (syslinux MBR)\n", dst);
-  if (dry) { printf("create plan OK (dry-run)\n"); return 0; }
-
-  if (rufux_need_root_for_block(dst, err, errcap) != 0) return -1;
-  RufuxPartOpts po = {.scheme = scheme, .layout = "esp+main", .dry_run = 0,
-                      .allow_fixed = allow_fixed, .allow_file = 0, .yes = 1};
-  if (rufux_partition(dst, &po, err, errcap) != 0) return -1;
-  // rescan + settle so the kernel exposes the new partition node
-  const char *pp[] = {"/usr/bin/partprobe", dst, NULL};
-  if (rufux_have("/usr/bin/partprobe")) rufux_run(pp, 0);
-  const char *us[] = {"/usr/bin/udevadm", "settle", NULL};
-  if (rufux_have("/usr/bin/udevadm")) rufux_run(us, 0);
-  int waited = 0;
-  while (access(p1, F_OK) != 0 && waited < 100) { usleep(100000); waited++; }
-  if (access(p1, F_OK) != 0) {
-    snprintf(err, errcap, "partition node '%s' did not appear", p1);
-    return -1;
-  }
-  RufuxMkfsOpts mo = {.fs = fs, .label = label, .dry_run = 0,
-                      .allow_fixed = allow_fixed, .allow_file = 0, .yes = 1};
-  if (rufux_format(p1, &mo, err, errcap) != 0) return -1;
-  char mnt[512] = {0};
-  if (rufux_mount(p1, 0, mnt, sizeof mnt, err, errcap) != 0) return -1;
-  int rc = 0;
-  if (rufux_extract_iso(src, mnt, 0, err, errcap) != 0) rc = -1;
-  if (!rc && persist_mb) {
-    if (rufux_create_persist(mnt, "casper-rw", persist_mb, 0, err, errcap) != 0) rc = -1;
-  }
-  char uerr[512] = {0};
-  if (rufux_unmount(p1, 0, uerr, sizeof uerr) != 0 && !rc) {
-    snprintf(err, errcap, "extracted but unmount failed: %s", uerr);
-    rc = -1;
-  }
-  if (!rc) {
-    RufuxBootOpts bo = {.kind = !strcmp(scheme, "gpt") ? "gpt" : "bios",
-                        .dry_run = 0, .allow_fixed = allow_fixed, .yes = 1};
-    if (rufux_install_mbr(dst, &bo, err, errcap) != 0) rc = -1;
-  }
-  if (!rc) printf("create/extract OK: %s -> %s\n", src, dst);
-  return rc;
-}
+// End-to-end flows live in src/linux/create.c (shared with the GUI).
 
 int main(int argc, char **argv) {
   rufux_i18n_init();
@@ -356,59 +305,35 @@ int main(int argc, char **argv) {
   }
   if (argc >= 4 && !strcmp(argv[1], "create")) {
     const char *src = argv[2], *dst = argv[3];
-    const char *mode = "dd", *scheme = "gpt", *fs = "vfat", *label = "RUFUX";
-    unsigned long persist_mb = 0;
-    int dry = 1, allow_file = 0, allow_fixed = 0, yes = 0, verify = 0;
+    RufuxCreateOpts o;
+    rufux_create_defaults(&o);
+    if (!strcmp(src, "none")) src = NULL;
     for (int i = 4; i < argc; i++) {
-      if (!strcmp(argv[i], "--mode") && i + 1 < argc) mode = argv[++i];
-      else if (!strcmp(argv[i], "--scheme") && i + 1 < argc) scheme = argv[++i];
-      else if (!strcmp(argv[i], "--fs") && i + 1 < argc) fs = argv[++i];
-      else if (!strcmp(argv[i], "--label") && i + 1 < argc) label = argv[++i];
-      else if (!strcmp(argv[i], "--persist-mb") && i + 1 < argc) persist_mb = strtoul(argv[++i], NULL, 10);
-      else if (!strcmp(argv[i], "--dry-run")) dry = 1;
-      else if (!strcmp(argv[i], "--real")) dry = 0;
-      else if (!strcmp(argv[i], "--allow-file")) allow_file = 1;
-      else if (!strcmp(argv[i], "--allow-fixed")) allow_fixed = 1;
-      else if (!strcmp(argv[i], "--yes")) yes = 1;
-      else if (!strcmp(argv[i], "--verify")) verify = 1;
+      if (!strcmp(argv[i], "--mode") && i + 1 < argc) o.mode = argv[++i];
+      else if (!strcmp(argv[i], "--scheme") && i + 1 < argc) o.scheme = argv[++i];
+      else if (!strcmp(argv[i], "--fs") && i + 1 < argc) o.fs = argv[++i];
+      else if (!strcmp(argv[i], "--label") && i + 1 < argc) o.label = argv[++i];
+      else if (!strcmp(argv[i], "--persist-mb") && i + 1 < argc) o.persist_mb = strtoul(argv[++i], NULL, 10);
+      else if (!strcmp(argv[i], "--cluster-sectors") && i + 1 < argc) o.cluster_sectors = atoi(argv[++i]);
+      else if (!strcmp(argv[i], "--badblock-passes") && i + 1 < argc) o.badblock_passes = atoi(argv[++i]);
+      else if (!strcmp(argv[i], "--dry-run")) o.dry_run = 1;
+      else if (!strcmp(argv[i], "--real")) o.dry_run = 0;
+      else if (!strcmp(argv[i], "--allow-file")) o.allow_file = 1;
+      else if (!strcmp(argv[i], "--allow-fixed")) o.allow_fixed = 1;
+      else if (!strcmp(argv[i], "--yes")) o.yes = 1;
+      else if (!strcmp(argv[i], "--verify")) o.verify = 1;
+      else if (!strcmp(argv[i], "--quick")) o.quick_format = 1;
+      else if (!strcmp(argv[i], "--full")) o.quick_format = 0;
+      else if (!strcmp(argv[i], "--no-autorun")) o.extended_label = 0;
+      else if (!strcmp(argv[i], "--uefi-validate")) o.uefi_validate = 1;
+    }
+    if ((!strcmp(o.mode, "dd") || !strcmp(o.mode, "extract")) && !src) {
+      fprintf(stderr, "create: --mode %s needs an image (use 'none' only with --mode format)\n", o.mode);
+      return 2;
     }
     char err[1024] = {0};
-    printf("create plan: %s -> %s [mode=%s scheme=%s fs=%s label=%s persist=%luMB]%s\n",
-           src, dst, mode, scheme, fs, label, persist_mb, dry ? " [dry-run]" : "");
-    if (!strcmp(mode, "dd")) {
-      RufuxWriteOpts o = {.dry_run = dry, .verify = verify, .allow_fixed = allow_fixed,
-                          .allow_file = allow_file, .yes = yes};
-      if (!dry && rufux_need_root_for_block(dst, err, sizeof err) != 0) {
-        fprintf(stderr, "create/dd failed: %s\n", err);
-        return 3;
-      }
-      if (rufux_write_image(src, dst, &o, cli_progress, NULL, err, sizeof err) != 0) {
-        fprintf(stderr, "create/dd failed: %s\n", err);
-        return 3;
-      }
-      printf("create/dd %s\n", dry ? "planned" : "OK");
-      return 0;
-    }
-    if (is_dir(dst)) {
-      if (rufux_extract_iso(src, dst, dry, err, sizeof err) != 0) {
-        fprintf(stderr, "create/extract failed: %s\n", err);
-        return 3;
-      }
-      if (persist_mb && !dry) {
-        if (rufux_create_persist(dst, "casper-rw", persist_mb, 0, err, sizeof err) != 0) {
-          fprintf(stderr, "create/persist failed: %s\n", err);
-          return 3;
-        }
-      } else if (persist_mb) {
-        printf("+ persist casper-rw %luMB in %s [dry-run]\n", persist_mb, dst);
-      }
-      printf("create/extract %s\n", dry ? "planned" : "OK");
-      return 0;
-    }
-    // whole-disk target: full auto flow (udisks2 mount)
-    if (create_disk_extract(src, dst, scheme, fs, label, persist_mb, dry,
-                            allow_fixed, err, sizeof err) != 0) {
-      fprintf(stderr, "create/extract failed: %s\n", err[0] ? err : "unknown");
+    if (rufux_create(src, dst, &o, cli_progress, NULL, cli_clog, NULL, err, sizeof err) != 0) {
+      fprintf(stderr, "create failed: %s\n", err[0] ? err : "unknown");
       return 3;
     }
     return 0;
