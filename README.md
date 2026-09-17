@@ -4,13 +4,11 @@ Fork of [pbatard/rufus](https://github.com/pbatard/rufus) (GPLv3), ported to Lin
 
 Goal: full-featured Linux-native port, including GUI — bootable USB creation, ISO/DD writing, partitioning, filesystems, checksums, persistence.
 
-## Status: day-1 scaffold
+## Status: Phase 1 done (v0.2.0) — see PHASES.md
 
-This repo currently contains:
-- Full upstream Rufus source (under `src/`, `res/`) for reference
-- Linux port plan in `PORTING.md`
-- New Linux-native skeleton in `src/linux/` + GTK GUI in `src/gui/`
-- CMake build in `CMakeLists.txt`
+Phase 1 delivers safe core: `list --json`, `probe --detail`,
+`checksum`, `write --dry-run/--real --verify`, GTK dry-run + progress.
+Phase 3 will be the stable v1.0 release.
 
 ## Build (Linux scaffold)
 

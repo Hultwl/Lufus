@@ -1,11 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
-project(Lufus VERSION 0.1.0 LANGUAGES C)
+project(Lufus VERSION 0.2.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 add_compile_options(-Wall -Wextra -Wformat-security)
 
-# Scaffold binary: Linux-native, no windows.h
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK4 gtk4)
 pkg_check_modules(UDEV libudev)
@@ -15,6 +14,8 @@ add_executable(lufus
   src/linux/main.c
   src/linux/device.c
   src/linux/iso_probe.c
+  src/linux/checksum.c
+  src/linux/writer.c
 )
 
 target_include_directories(lufus PRIVATE src/linux src)
@@ -27,7 +28,10 @@ if(GTK4_FOUND AND UDEV_FOUND AND BLKID_FOUND)
   target_link_directories(lufus PRIVATE ${GTK4_LIBRARY_DIRS} ${UDEV_LIBRARY_DIRS} ${BLKID_LIBRARY_DIRS})
   target_link_libraries(lufus PRIVATE ${GTK4_LIBRARIES} ${UDEV_LIBRARIES} ${BLKID_LIBRARIES})
 else()
-  message(STATUS "GTK4/udev/blkid missing, building CLI-only scaffold")
+  message(STATUS "GTK4/udev/blkid missing, building CLI-only")
 endif()
 
 install(TARGETS lufus DESTINATION bin)
+
+enable_testing()
+add_test(NAME phase1 COMMAND bash ${CMAKE_SOURCE_DIR}/tests/test_phase1.sh $<TARGET_FILE:lufus>)
