@@ -20,13 +20,21 @@ static int read_first_line(const char *path, char *out, size_t cap) {
   return 0;
 }
 
-static unsigned long long dev_size_bytes(const char *devnode) {
+static unsigned long long dev_size_bytes(const char *sysname, const char *devnode) {
   int fd = open(devnode, O_RDONLY | O_NONBLOCK | O_CLOEXEC);
-  if (fd < 0) return 0;
-  unsigned long long bytes = 0;
-  if (ioctl(fd, BLKGETSIZE64, &bytes) != 0) bytes = 0;
-  close(fd);
-  return bytes;
+  if (fd >= 0) {
+    unsigned long long bytes = 0;
+    if (ioctl(fd, BLKGETSIZE64, &bytes) == 0 && bytes > 0) { close(fd); return bytes; }
+    close(fd);
+  }
+  // Fallback: sysfs sector count (world-readable, no privileges needed).
+  char p[256], buf[64] = {0};
+  snprintf(p, sizeof p, "/sys/block/%s/size", sysname);
+  if (read_first_line(p, buf, sizeof buf) == 0) {
+    unsigned long long sectors = strtoull(buf, NULL, 10);
+    if (sectors > 0) return sectors * 512ULL;
+  }
+  return 0;
 }
 
 // 1 if /proc/mounts references /dev/<sys> or /dev/<sys>[0-9p]*
@@ -126,7 +134,7 @@ int rufux_list_devices(RufuxDevice *out, int max, int include_fixed) {
       detect_transport(e->d_name, "", removable, dev->transport, sizeof dev->transport);
     }
     dev->mounted = dev_is_mounted(e->d_name);
-    dev->size_bytes = dev_size_bytes(dev->devnode);
+    dev->size_bytes = dev_size_bytes(dev->sysname, dev->devnode);
     n++;
   }
   closedir(d);

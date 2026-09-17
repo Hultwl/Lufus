@@ -68,6 +68,7 @@ static GtkWidget *check_badblocks;
 static GtkWidget *select_btn;
 static GtkWidget *hash_btn;
 static int opt_dark = -1; // -1 system, 0 light, 1 dark
+static int syncing = 0; // scheme<->target lock guard
 
 static char sel_iso[1024] = {0};
 static RufuxIsoInfo sel_info = {0};
@@ -142,6 +143,32 @@ static int boot_is_iso(void) {
   return strstr(b, "ISO") != NULL;
 }
 
+// Rufus behavior: scheme and target track each other both ways.
+static void on_scheme_changed(GtkDropDown *d, gpointer u) {
+  (void)d; (void)u;
+  if (syncing) return;
+  syncing = 1;
+  const char *s = drop_text(scheme_drop, "GPT");
+  if (!strncmp(s, "GPT", 3))
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(target_drop), 2); // UEFI (non CSM)
+  else
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(target_drop), 1); // BIOS (or UEFI-CSM)
+  syncing = 0;
+}
+
+static void on_target_changed(GtkDropDown *d, gpointer u) {
+  (void)d; (void)u;
+  if (syncing) return;
+  syncing = 1;
+  guint t = gtk_drop_down_get_selected(GTK_DROP_DOWN(target_drop));
+  if (t == 1)
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(scheme_drop), 1); // MBR
+  else if (t == 2)
+    gtk_drop_down_set_selected(GTK_DROP_DOWN(scheme_drop), 0); // GPT
+  // "BIOS or UEFI" leaves the scheme alone
+  syncing = 0;
+}
+
 static void on_boot_changed(GtkDropDown *d, gpointer u) {
   (void)d; (void)u;
   int iso = boot_is_iso();
@@ -189,6 +216,12 @@ static void on_iso_response(GtkNativeDialog *d, int r, gpointer w) {
           gtk_drop_down_set_selected(GTK_DROP_DOWN(image_drop), 0);
         else
           gtk_drop_down_set_selected(GTK_DROP_DOWN(image_drop), 1);
+        // Rufus behavior: EFI-capable ISO -> GPT/UEFI, else MBR
+        // (scheme lock propagates to the target dropdown)
+        if (sel_info.has_efi)
+          gtk_drop_down_set_selected(GTK_DROP_DOWN(scheme_drop), 0);
+        else if (sel_info.valid_iso)
+          gtk_drop_down_set_selected(GTK_DROP_DOWN(scheme_drop), 1);
         if (sel_info.size_bytes < (256ull << 20)) {
           unsigned char sum[32];
           char err[256] = {0};
@@ -518,9 +551,11 @@ static void activate(GtkApplication *app, gpointer u) {
     const char *ps[] = {"GPT", "MBR", NULL};
     scheme_drop = gtk_drop_down_new_from_strings(ps);
     gtk_widget_set_hexpand(scheme_drop, TRUE);
+    g_signal_connect(scheme_drop, "notify::selected", G_CALLBACK(on_scheme_changed), NULL);
     const char *ts[] = {"BIOS or UEFI", "BIOS (or UEFI-CSM)", "UEFI (non CSM)", NULL};
     target_drop = gtk_drop_down_new_from_strings(ts);
     gtk_widget_set_hexpand(target_drop, TRUE);
+    g_signal_connect(target_drop, "notify::selected", G_CALLBACK(on_target_changed), NULL);
     gtk_box_append(GTK_BOX(r), scheme_drop);
     gtk_box_append(GTK_BOX(r), target_drop);
   }
