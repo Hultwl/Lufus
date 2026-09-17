@@ -27,19 +27,19 @@
 
 ---
 
-## ✨ Features
+## Features
 
 | Area | What you get |
 |---|---|
-| 🔥 Burn | DD image mode (verified writes) and ISO file mode (partition → format → extract → bootloader, auto-mounted via udisks2) |
-| 💾 Layouts | GPT/MBR, FAT32 / NTFS / exFAT / UDF / ext4, cluster-size control, volume labels taken from the image |
-| 🖥 GUI | Rufus-style dialog: drive properties, boot selection, persistence (casper-rw), target-system lock, bad-block passes, SHA-256 checker, timestamped log with save |
-| 📊 Progress | Real staged percent end-to-end, speed + ETA in the CLI, live percent in the GUI |
-| 🛡 Safety | Everything dry-runs by default; real block writes need `--real --yes` + root; fixed disks, mounted targets and source == target refused |
-| ✅ Validation | Secure Boot status, EFI bootloader checks, byte-compare verify pass |
-| 🌍 i18n | gettext infrastructure (FR/ES shipped) + dark-theme aware |
+| Burn | DD image mode (verified writes) and ISO file mode (partition → format → extract → bootloader, auto-mounted via udisks2) |
+| Layouts | GPT/MBR, FAT32 / NTFS / exFAT / UDF / ext4, cluster-size control, volume labels taken from the image |
+| GUI | Rufus-style dialog: drive properties, boot selection, persistence (casper-rw), target-system lock, bad-block passes, SHA-256 checker, timestamped log with save |
+| Progress | Real staged percent end-to-end, speed + ETA in the CLI, live percent in the GUI |
+| Safety | Everything dry-runs by default; real block writes need `--real --yes` + root; fixed disks, mounted targets and source == target refused |
+| Validation | Secure Boot status, EFI bootloader checks, byte-compare verify pass |
+| i18n | gettext infrastructure (FR/ES shipped) + dark-theme aware |
 
-## 📦 Install
+## Install
 
 **AppImage** (easiest — portable, self-updating via `update-check`):
 ```sh
@@ -64,7 +64,7 @@ Needs on the host for formatting work: `dosfstools`, `ntfsprogs`, `exfatprogs`,
 `e2fsprogs`, `util-linux`, `syslinux`, `udisks2`, `libarchive` — see
 [`packaging/README.md`](packaging/README.md).
 
-## 🚀 Quick start
+## Quick start
 
 ```sh
 rufux list                                  # removable drives
@@ -74,7 +74,7 @@ sudo rufux write image.iso /dev/sdX --real --verify --yes
 rufux --gui                                 # full GUI (escalates per action)
 ```
 
-## 📚 Docs
+## Docs
 
 - [`PORTING.md`](PORTING.md) — what was kept vs rewritten from Rufus
 - [`PHASES.md`](PHASES.md) — the road to 1.0
@@ -82,13 +82,13 @@ rufux --gui                                 # full GUI (escalates per action)
 - [`tests/HW_MATRIX.md`](tests/HW_MATRIX.md) — hardware validation checklist
 - `man rufux` after install
 
-## 🤝 Contributing
+## Contributing
 
 Bug reports with log output are gold (`Save` button in the GUI).
 Test-driven fixes welcome: `tests/test_phase*.sh` must stay green —
 see [`tests/HW_MATRIX.md`](tests/HW_MATRIX.md) before touching real hardware.
 
-## 🙏 Origin
+## Origin
 
 Port of [pbatard/rufus](https://github.com/pbatard/rufus) (© Pete Batard,
 GPLv3 — upstream sources kept in-tree for reference). Renamed from Lufus
