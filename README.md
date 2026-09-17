@@ -1,8 +1,4 @@
-# Rufux — Rufus for Linux (stable 1.1.1)
-
-> **Status: archived — maintainer is busy.** This project is on hold and
-> read-only for now. The 1.1.1 release + AppImage below remain available
-> as-is. Thanks for understanding. — Hultwl
+# Rufux — Rufus for Linux (stable 1.1.2)
 
 Fork of [pbatard/rufus](https://github.com/pbatard/rufus) (GPLv3), ported to Linux.
 
@@ -22,7 +18,7 @@ sudo cmake --install build
 rufux --gui
 ```
 
-## Status: stable 1.1.1 — see PHASES.md + CHANGELOG.md
+## Status: stable 1.1.2 — see PHASES.md + CHANGELOG.md
 
 Quick check: `./build/rufux list`, `./build/rufux probe file.iso --detail`,
 `./build/rufux --gui`. Destructive commands default to `--dry-run`;

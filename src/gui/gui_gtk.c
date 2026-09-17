@@ -365,11 +365,63 @@ static void on_hdd_toggled(GtkCheckButton *b, gpointer u) {
   on_refresh(NULL, NULL); // rescan with/without fixed disks
 }
 
-static int parse_cluster_sectors(const char *s) {
-  unsigned v = 0;
+static int parse_cluster_sectors(const char *s) {  unsigned v = 0;
   if (!s || strstr(s, "Default")) return 0;
   if (sscanf(s, "%u", &v) != 1 || v < 512) return 0;
   return (int)(v / 512);
+}
+
+// Non-blocking stream drain into a line accumulator. For worker stderr
+// (is_err) the last % in each chunk drives the bar + status; complete
+// \n lines are logged except pure progress lines. Never blocks the UI.
+static void drain_stream(GInputStream *s, char *acc, size_t *len, size_t cap, int is_err) {
+  if (!G_IS_POLLABLE_INPUT_STREAM(s)) return;
+  char buf[4096];
+  GError *e = NULL;
+  gssize n = g_pollable_input_stream_read_nonblocking(G_POLLABLE_INPUT_STREAM(s),
+                                                      buf, sizeof buf - 1, NULL, &e);
+  if (n <= 0) { g_clear_error(&e); return; }
+  buf[n] = 0;
+  if (is_err) {
+    char *pct = NULL, *q = buf;
+    while ((q = strchr(q, '%')) != NULL) { pct = q; q++; }
+    if (pct) {
+      int p = 0;
+      char *st = pct - 1;
+      while (st >= buf && *st != '\r' && *st != '\n') st--;
+      if (sscanf(st + 1, "%d%%", &p) == 1 && p >= 0 && p <= 100) {
+        gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress), p / 100.0);
+        char msg[64];
+        snprintf(msg, sizeof msg, "Working… %d%%", p);
+        gui_status(msg);
+      }
+    }
+  }
+  if (*len + (size_t)n >= cap) return; // accumulator full: drop (bounded)
+  memcpy(acc + *len, buf, (size_t)n);
+  *len += (size_t)n;
+  acc[*len] = 0;
+  char *line = acc, *nl;
+  while ((nl = strchr(line, '\n')) != NULL) {
+    *nl = 0;
+    char *t = line;
+    while (*t == '\r' || *t == ' ') t++;
+    if (t[0] && !strchr(t, '%')) gui_log(t);
+    line = nl + 1;
+  }
+  size_t rest = *len - (size_t)(line - acc);
+  memmove(acc, line, rest);
+  *len = rest;
+  acc[*len] = 0;
+}
+
+// Log a trailing fragment that never got its newline (true EOF only).
+static void flush_tail(char *acc, size_t *len) {
+  char *t = acc;
+  while (*t == '\r' || *t == ' ') t++;
+  if (t[0] && !strchr(t, '%')) gui_log(t);
+  *len = 0;
+  acc[0] = 0;
 }
 
 // --- START (IDC_START), Rufus MSG_003 warning included ---
@@ -504,69 +556,32 @@ static void on_start(GtkButton *b, gpointer win) {
   // No double burns, no closing mid-write (Rufus locks its buttons too).
   gtk_widget_set_sensitive(start_btn, FALSE);
   gtk_widget_set_sensitive(close_btn, FALSE);
-  // Stream worker output: stdout lines -> log, stderr carries overall %.
-  GDataInputStream *out = g_data_input_stream_new(g_subprocess_get_stdout_pipe(proc));
+  // Stream worker output without ever blocking the UI loop below:
+  // both pipes are drained non-blocking; complete lines go to the log.
+  GInputStream *outs = g_subprocess_get_stdout_pipe(proc);
   GInputStream *errs = g_subprocess_get_stderr_pipe(proc);
-  GMainLoop *loop = g_main_loop_new(NULL, FALSE);
+  char out_acc[65536] = {0};
+  size_t out_len = 0;
+  char err_acc[8192] = {0};
+  size_t err_len = 0;
   gboolean done = FALSE;
   // Worker stderr carries both \r progress and real error text (pkexec
   // auth failures, refusal reasons). Forward completed text lines to
   // the log so failures are never silent; parse % for the bar.
-  char err_acc[8192] = {0};
-  size_t err_len = 0;
   while (!done) {
-    // Drain whatever the worker has emitted, then pump the UI.
-    char *line = g_data_input_stream_read_line(out, NULL, NULL, NULL);
-    while (line) {
-      gui_log(line);
-      g_free(line);
-      line = g_data_input_stream_read_line(out, NULL, NULL, NULL);
-    }
-    char ebuf[4096];
-    gssize n = g_pollable_input_stream_read_nonblocking(
-        G_POLLABLE_INPUT_STREAM(errs), ebuf, sizeof ebuf - 1, NULL, NULL);
-    if (n > 0) {
-      ebuf[n] = 0;
-      // Overall progress is percent-normalized ("\r 42%").
-      char *pct = NULL, *q = ebuf;
-      while ((q = strchr(q, '%')) != NULL) { pct = q; q++; }
-      if (pct) {
-        int p = 0;
-        char *s = pct - 1;
-        while (s >= ebuf && *s != '\r' && *s != '\n') s--;
-        if (sscanf(s + 1, "%d%%", &p) == 1 && p >= 0 && p <= 100) {
-          gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress), p / 100.0);
-          char st[64];
-          snprintf(st, sizeof st, "Working… %d%%", p);
-          gui_status(st);
-        }
-      }
-      // Accumulate and flush complete text lines (progress fragments
-      // without a newline stay buffered).
-      if (err_len + (size_t)n < sizeof err_acc - 1) {
-        memcpy(err_acc + err_len, ebuf, (size_t)n);
-        err_len += (size_t)n;
-        err_acc[err_len] = 0;
-      }
-      char *line = err_acc;
-      char *nl;
-      while ((nl = strchr(line, '\n')) != NULL) {
-        *nl = 0;
-        // Skip pure progress lines ("\r 42% ..."); log everything else.
-        char *t = line;
-        while (*t == '\r' || *t == ' ') t++;
-        if (!strchr(t, '%') && t[0]) gui_log(t);
-        line = nl + 1;
-      }
-      size_t rest = err_len - (size_t)(line - err_acc);
-      memmove(err_acc, line, rest);
-      err_len = rest;
-      err_acc[err_len] = 0;
-    }
+    drain_stream(outs, out_acc, &out_len, sizeof out_acc, 0);
+    drain_stream(errs, err_acc, &err_len, sizeof err_acc, 1);
     if (g_subprocess_get_if_exited(proc)) {
-      // Final drain, then out.
-      char *l2 = g_data_input_stream_read_line(out, NULL, NULL, NULL);
-      while (l2) { gui_log(l2); g_free(l2); l2 = g_data_input_stream_read_line(out, NULL, NULL, NULL); }
+      // Final drain until both pipes are quiet, then flush tails.
+      for (int i = 0; i < 40; i++) {
+        size_t before = out_len + err_len;
+        drain_stream(outs, out_acc, &out_len, sizeof out_acc, 0);
+        drain_stream(errs, err_acc, &err_len, sizeof err_acc, 1);
+        if (out_len + err_len == before) break;
+        g_usleep(20000);
+      }
+      flush_tail(out_acc, &out_len);
+      flush_tail(err_acc, &err_len);
       done = TRUE;
     } else {
       while (g_main_context_iteration(NULL, FALSE)) {}
@@ -576,15 +591,7 @@ static void on_start(GtkButton *b, gpointer win) {
   gboolean ok = g_subprocess_get_successful(proc);
   int code = -1;
   if (g_subprocess_get_if_exited(proc)) code = g_subprocess_get_exit_status(proc);
-  // Flush any trailing stderr text without a newline.
-  if (err_len) {
-    char *t = err_acc;
-    while (*t == '\r' || *t == ' ') t++;
-    if (!strchr(t, '%') && t[0]) gui_log(t);
-  }
-  g_object_unref(out);
   g_object_unref(proc);
-  g_main_loop_unref(loop);
   gtk_widget_set_sensitive(start_btn, TRUE);
   gtk_widget_set_sensitive(close_btn, TRUE);
   if (!ok) {
@@ -661,8 +668,68 @@ static GtkWidget *hrow(GtkWidget *box) {
   return r;
 }
 
-static void activate(GtkApplication *app, gpointer u) {
-  (void)u;
+// Follow the desktop theme: ask the xdg Settings portal for the system
+// color-scheme (1 = dark). Falls back to the GTK settings.ini, then to
+// dark on dark-first desktops (COSMIC) that expose neither.
+static void apply_system_theme(void) {
+  if (opt_dark >= 0) return; // explicit --theme wins
+  GtkSettings *st = gtk_settings_get_default();
+  if (!st) return;
+  GError *e = NULL;
+  GDBusConnection *bus = g_bus_get_sync(G_BUS_TYPE_SESSION, NULL, &e);
+  if (bus) {
+    // Modern namespace first, legacy draft second (COSMIC answers there).
+    static const char *ns[] = {"org.freedesktop.desktop.interface",
+                               "org.freedesktop.appearance", NULL};
+    for (int i = 0; ns[i]; i++) {
+      GVariant *ret = g_dbus_connection_call_sync(
+          bus, "org.freedesktop.portal.Desktop", "/org/freedesktop/portal/desktop",
+          "org.freedesktop.portal.Settings", "Read",
+          g_variant_new("(ss)", ns[i], "color-scheme"),
+          G_VARIANT_TYPE("(v)"), G_DBUS_CALL_FLAGS_NONE, 2000, NULL, &e);
+      if (!ret) { g_clear_error(&e); continue; }
+      GVariant *inner = NULL;
+      g_variant_get(ret, "(v)", &inner);
+      if (inner) {
+        guint32 scheme = g_variant_get_uint32(inner);
+        g_object_set(st, "gtk-application-prefer-dark-theme",
+                     (scheme == 1 || scheme == 2) ? TRUE : FALSE, NULL);
+        g_variant_unref(inner);
+        g_variant_unref(ret);
+        g_object_unref(bus);
+        return; // portal answered: done
+      }
+      g_variant_unref(ret);
+    }
+    g_object_unref(bus);
+  }
+  // No portal answer: GTK config files, then COSMIC default.
+  char path[1152];
+  snprintf(path, sizeof path, "%s/.config/gtk-4.0/settings.ini", invoking_home());
+  GKeyFile *kf = g_key_file_new();
+  if (!g_key_file_load_from_file(kf, path, G_KEY_FILE_NONE, NULL)) {
+    snprintf(path, sizeof path, "%s/.config/gtk-3.0/settings.ini", invoking_home());
+    if (!g_key_file_load_from_file(kf, path, G_KEY_FILE_NONE, NULL)) {
+      g_key_file_free(kf);
+      snprintf(path, sizeof path, "%s/.config/cosmic", invoking_home());
+      if (access(path, R_OK | X_OK) == 0)
+        g_object_set(st, "gtk-application-prefer-dark-theme", TRUE, NULL);
+      return;
+    }
+  }
+  char *t = NULL;
+  if (g_key_file_has_key(kf, "Settings", "gtk-theme-name", NULL))
+    t = g_key_file_get_string(kf, "Settings", "gtk-theme-name", NULL);
+  if (t && t[0]) {
+    g_object_set(st, "gtk-theme-name", t, NULL);
+    if (strstr(t, "dark") || strstr(t, "Dark"))
+      g_object_set(st, "gtk-application-prefer-dark-theme", TRUE, NULL);
+  }
+  g_free(t);
+  g_key_file_free(kf);
+}
+
+static void activate(GtkApplication *app, gpointer u) {  (void)u;
   toplevel = gtk_application_window_new(app);
   gtk_window_set_title(GTK_WINDOW(toplevel), _("Rufux — USB Creator (Linux)"));
   gtk_window_set_default_size(GTK_WINDOW(toplevel), 520, 720);
@@ -672,6 +739,8 @@ static void activate(GtkApplication *app, gpointer u) {
   if (opt_dark >= 0) {
     GtkSettings *st = gtk_settings_get_default();
     if (st) g_object_set(st, "gtk-application-prefer-dark-theme", opt_dark ? TRUE : FALSE, NULL);
+  } else {
+    apply_system_theme();
   }
   GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
   gtk_widget_set_margin_top(box, 10); gtk_widget_set_margin_bottom(box, 10);
