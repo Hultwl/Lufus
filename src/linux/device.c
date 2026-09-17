@@ -179,11 +179,6 @@ void rufux_print_devices_json(const RufuxDevice *devs, int n) {
   printf("]\n");
 }
 
-int rufux_running_in_flatpak(void) {
-  struct stat st;
-  return stat("/.flatpak-info", &st) == 0;
-}
-
 int rufux_check_target(const char *path, int allow_fixed, int allow_file,
                        char *err, unsigned long cap) {
   struct stat st;
@@ -200,13 +195,6 @@ int rufux_check_target(const char *path, int allow_fixed, int allow_file,
   }
   if (!S_ISBLK(st.st_mode)) {
     snprintf(err, cap, "target '%s' is not a block device or file", path);
-    return -1;
-  }
-  // Inside Flatpak there is no path to raw block devices (no host pkexec,
-  // no device access): fail fast with directions instead of obscure errors.
-  if (rufux_running_in_flatpak()) {
-    snprintf(err, cap, "block devices are not accessible inside the Flatpak sandbox; "
-                       "use the AppImage or a native package");
     return -1;
   }
   // derive sysname: resolve /dev/sda -> sda (strip partitions trailing digits)

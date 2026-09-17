@@ -23,20 +23,6 @@ cp packaging/PKGBUILD /tmp/rufux-pkg/ && cd /tmp/rufux-pkg
 makepkg -si
 ```
 
-## Flatpak
-
-```sh
-flatpak-builder --install build-dir packaging/io.github.hultwl.rufux.json
-flatpak run io.github.hultwl.rufux --gui
-```
-
-Scope (honest): probing/checksum/extract-to-directory work, but raw
-block-device writes are refused inside the sandbox — there is no host
-`pkexec` path and no device access worth having, so the app fails fast
-with directions instead of obscure errors. Full functionality needs the
-AppImage or a native package. (A future udisks2 D-Bus backend could lift
-this; tracked, not started.)
-
 ## From source (any distro)
 
 ```sh

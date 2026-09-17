@@ -1,14 +1,11 @@
 # Changelog
 
-## 1.1.4 (Flathub submission release)
+## 1.1.4
 
-- AppStream metadata + real dark-theme screenshot + icon/desktop
-  install set, for the Flathub submission.
 - Portal theme fix: unwrap variant-wrapped color-scheme replies
   (COSMIC answers on the legacy namespace); proven live.
-- Manifest: UDisks2 + PolicyKit1 talk-names declared; tag tracks
-  the release. Flatpak block writes still refused up front
-  (documented) — needs a real `flatpak run` device test.
+- No Flatpak: sandbox and raw disks don't mix, so all Flatpak
+  packaging left the tree (manifest, metadata, guard, docs).
 
 - Partition rescan actually runs (was log-only): standalone
   `partition` rescans via partprobe + udevadm settle.

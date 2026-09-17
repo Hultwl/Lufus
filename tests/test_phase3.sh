@@ -63,8 +63,6 @@ fi
 
 # 6. packaging files exist and parse
 [ -f "$SRC_DIR/packaging/PKGBUILD" ] && bash -n "$SRC_DIR/packaging/PKGBUILD" && ok "PKGBUILD syntax" || bad "PKGBUILD syntax"
-python3 -c "import json;json.load(open('$SRC_DIR/packaging/io.github.hultwl.rufux.json'))" \
-  && ok "flatpak manifest JSON" || bad "flatpak manifest JSON"
 [ -f "$SRC_DIR/doc/rufux.1" ] && grep -q "secureboot" "$SRC_DIR/doc/rufux.1" && ok "man page" || bad "man page"
 python3 -c "import xml.dom.minidom;xml.dom.minidom.parse('$SRC_DIR/res/linux/io.github.hultwl.rufux.policy')" \
   && ok "polkit policy XML" || bad "polkit policy XML"

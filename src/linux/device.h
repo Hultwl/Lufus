@@ -15,7 +15,6 @@ typedef struct {
   int mounted;        // 1 if any partition of this disk is mounted
 } RufuxDevice;
 
-int rufux_running_in_flatpak(void);
 int rufux_list_devices(RufuxDevice *out, int max, int include_fixed);
 void rufux_print_devices(const RufuxDevice *devs, int n);
 void rufux_print_devices_json(const RufuxDevice *devs, int n);

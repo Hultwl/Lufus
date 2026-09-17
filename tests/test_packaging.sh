@@ -18,8 +18,7 @@ else
   bad "PKGBUILD tag does not track pkgver"
 fi
 
-FLAT_TAG="$(grep -oP '"tag": "v\K[0-9.]+' "$SRC_DIR/packaging/io.github.hultwl.rufux.json")"
-[ "$FLAT_TAG" = "$CMAKE_VER" ] && ok "flatpak tag v$FLAT_TAG" || bad "flatpak tag v$FLAT_TAG != $CMAKE_VER"
+# No Flatpak manifest in-tree (removed deliberately); nothing to check.
 
 # README uses dynamic shields (release badge), no hardcoded version to drift.
 if grep -q "^## $CMAKE_VER" "$SRC_DIR/CHANGELOG.md"; then ok "CHANGELOG $CMAKE_VER"; else bad "CHANGELOG entry"; fi
