@@ -1,5 +1,9 @@
 # Rufux — Rufus for Linux (stable 1.1.1)
 
+> **Status: archived — maintainer is busy.** This project is on hold and
+> read-only for now. The 1.1.1 release + AppImage below remain available
+> as-is. Thanks for understanding. — Hultwl
+
 Fork of [pbatard/rufus](https://github.com/pbatard/rufus) (GPLv3), ported to Linux.
 
 Bootable USB creation, ISO/DD writing, partitioning, filesystems, checksums,
