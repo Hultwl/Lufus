@@ -5,6 +5,7 @@ set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 add_compile_options(-Wall -Wextra -Wformat-security)
 add_compile_definitions(LUFUS_VERSION="${PROJECT_VERSION}")
+add_compile_definitions(LUFUS_LOCALEDIR="${CMAKE_INSTALL_PREFIX}/share/locale")
 
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTK4 gtk4)

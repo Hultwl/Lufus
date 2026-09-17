@@ -4,10 +4,13 @@
 #ifdef ENABLE_NLS
 #include <libintl.h>
 #include <locale.h>
+#ifndef LUFUS_LOCALEDIR
+#define LUFUS_LOCALEDIR "/usr/share/locale"
+#endif
 #define _(s) gettext(s)
 static inline void lufus_i18n_init(void) {
   setlocale(LC_ALL, "");
-  bindtextdomain("lufus", "/usr/share/locale");
+  bindtextdomain("lufus", LUFUS_LOCALEDIR);
   textdomain("lufus");
 }
 #else
