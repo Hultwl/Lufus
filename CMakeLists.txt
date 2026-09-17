@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Lufus VERSION 0.2.0 LANGUAGES C)
+project(Lufus VERSION 0.3.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -16,6 +16,13 @@ add_executable(lufus
   src/linux/iso_probe.c
   src/linux/checksum.c
   src/linux/writer.c
+  src/linux/exec.c
+  src/linux/partition.c
+  src/linux/mkfs_task.c
+  src/linux/extract.c
+  src/linux/boot.c
+  src/linux/persist.c
+  src/linux/badblocks.c
 )
 
 target_include_directories(lufus PRIVATE src/linux src)
@@ -35,3 +42,4 @@ install(TARGETS lufus DESTINATION bin)
 
 enable_testing()
 add_test(NAME phase1 COMMAND bash ${CMAKE_SOURCE_DIR}/tests/test_phase1.sh $<TARGET_FILE:lufus>)
+add_test(NAME phase2 COMMAND bash ${CMAKE_SOURCE_DIR}/tests/test_phase2.sh $<TARGET_FILE:lufus>)

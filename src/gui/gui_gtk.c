@@ -1,17 +1,22 @@
-// Lufus GTK4 GUI — Phase 1: device list, ISO pick, dry-run Start + progress.
+// Lufus GTK4 GUI — Phase 2: device/ISO + mode/scheme/fs + dry-run Start.
 #include "gui_gtk.h"
 #include "../linux/device.h"
 #include "../linux/iso_probe.h"
 #include "../linux/checksum.h"
 #include "../linux/writer.h"
+#include "../linux/extract.h"
 
 #ifdef HAVE_GTK
 #include <gtk/gtk.h>
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 
 static GtkWidget *log_view;
 static GtkWidget *dev_drop;
+static GtkWidget *mode_drop;
+static GtkWidget *scheme_drop;
+static GtkWidget *fs_drop;
 static GtkWidget *progress;
 static GtkWidget *sum_label;
 static char sel_iso[1024] = {0};
@@ -109,6 +114,14 @@ static void write_progress_cb(unsigned long long done, unsigned long long total,
   while (g_main_context_iteration(NULL, FALSE)) {}
 }
 
+static const char *drop_text(GtkWidget *drop, const char *fallback) {
+  GListModel *m = gtk_drop_down_get_model(GTK_DROP_DOWN(drop));
+  guint s = gtk_drop_down_get_selected(GTK_DROP_DOWN(drop));
+  if (!m || s == GTK_INVALID_LIST_POSITION) return fallback;
+  GtkStringObject *o = GTK_STRING_OBJECT(g_list_model_get_object(m, s));
+  return o ? gtk_string_object_get_string(o) : fallback;
+}
+
 static void on_start(GtkButton *b, gpointer u) {
   (void)b; (void)u;
   if (!sel_iso[0]) { gui_log("Select an ISO first."); return; }
@@ -116,21 +129,39 @@ static void on_start(GtkButton *b, gpointer u) {
   guint sel = gtk_drop_down_get_selected(GTK_DROP_DOWN(dev_drop));
   if (sel >= (guint)devs_n) { gui_log("Select a device first."); return; }
   const char *dst = devs_cache[sel].devnode;
-  char msg[1152];
-  snprintf(msg, sizeof msg, "Dry-run: %s -> %s (no writes in Phase 1)", sel_iso, dst);
+  const char *mode = drop_text(mode_drop, "dd");
+  const char *scheme = drop_text(scheme_drop, "gpt");
+  const char *fs = drop_text(fs_drop, "vfat");
+  // keep values short: dropdown shows "dd — direct image" etc.
+  char mode_s[16] = {0}, scheme_s[16] = {0}, fs_s[16] = {0};
+  sscanf(mode, "%15s", mode_s); sscanf(scheme, "%15s", scheme_s); sscanf(fs, "%15s", fs_s);
+  char msg[1408];
+  snprintf(msg, sizeof msg, "Plan: %s -> %s [mode=%s scheme=%s fs=%s] (dry-run, no writes)",
+           sel_iso, dst, mode_s, scheme_s, fs_s);
   gui_log(msg);
+  gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress), 0.0);
+  if (!strncmp(mode_s, "extract", 7)) {
+    char err[512] = {0};
+    // dry-run extract plan against a temp dir probe (no writes to USB)
+    char tmp[] = "/tmp/lufus-gui-XXXXXX";
+    if (!mkdtemp(tmp)) { gui_log("tmpdir failed"); return; }
+    int rc = lufus_extract_iso(sel_iso, tmp, 1, err, sizeof err);
+    rmdir(tmp);
+    if (rc == 0) {
+      gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress), 1.0);
+      gui_log("Extract dry-run OK. Real: CLI 'create SRC MNT --mode extract --real'.");
+    } else {
+      snprintf(msg, sizeof msg, "Extract plan failed: %s", err);
+      gui_log(msg);
+    }
+    return;
+  }
   LufusWriteOpts o = {.dry_run = 1, .verify = 0};
   char err[512] = {0};
-  gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress), 0.0);
   int rc = lufus_write_image(sel_iso, dst, &o, write_progress_cb, NULL, err, sizeof err);
-  // dry-run to a mounted/fixed target may be refused by safety check; retry
-  // as pure source read so GUI demo never fails for lack of USB
   if (rc != 0) {
     snprintf(msg, sizeof msg, "Target check: %s — simulating source read only.", err);
     gui_log(msg);
-    LufusWriteOpts o2 = {.dry_run = 1, .verify = 0, .allow_fixed = 1, .allow_file = 1};
-    // dry-run still checks target; fall back to checksum-style read progress
-    (void)o2;
     unsigned char sum[32];
     char e2[256] = {0};
     if (lufus_sha256_file(sel_iso, sum, (LufusHashProgress)write_progress_cb, NULL, e2, sizeof e2) == 0) {
@@ -143,14 +174,14 @@ static void on_start(GtkButton *b, gpointer u) {
     return;
   }
   gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress), 1.0);
-  gui_log("Dry-run OK — no bytes written. Real write lands in Phase 2 CLI with --real --yes.");
+  gui_log("Dry-run OK — no bytes written. Real: CLI with --real --yes (see create).");
 }
 
 static void activate(GtkApplication *app, gpointer u) {
   (void)u;
   GtkWidget *win = gtk_application_window_new(app);
-  gtk_window_set_title(GTK_WINDOW(win), "Lufus — USB Creator (Linux, Phase 1)");
-  gtk_window_set_default_size(GTK_WINDOW(win), 580, 460);
+  gtk_window_set_title(GTK_WINDOW(win), "Lufus — USB Creator (Linux, Phase 2)");
+  gtk_window_set_default_size(GTK_WINDOW(win), 600, 540);
   GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
   gtk_widget_set_margin_top(box, 12); gtk_widget_set_margin_bottom(box, 12);
   gtk_widget_set_margin_start(box, 12); gtk_widget_set_margin_end(box, 12);
@@ -173,6 +204,19 @@ static void activate(GtkApplication *app, gpointer u) {
   gtk_label_set_xalign(GTK_LABEL(sum_label), 0.0f);
   gtk_box_append(GTK_BOX(box), sum_label);
 
+  GtkWidget *opt_row = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+  const char *modes[] = {"dd — direct image", "extract — UEFI files", NULL};
+  const char *schemes[] = {"gpt", "dos", NULL};
+  const char *fss[] = {"vfat", "ntfs", "exfat", "ext4", NULL};
+  mode_drop = gtk_drop_down_new_from_strings(modes);
+  scheme_drop = gtk_drop_down_new_from_strings(schemes);
+  fs_drop = gtk_drop_down_new_from_strings(fss);
+  gtk_widget_set_hexpand(mode_drop, TRUE);
+  gtk_box_append(GTK_BOX(opt_row), mode_drop);
+  gtk_box_append(GTK_BOX(opt_row), scheme_drop);
+  gtk_box_append(GTK_BOX(opt_row), fs_drop);
+  gtk_box_append(GTK_BOX(box), opt_row);
+
   progress = gtk_progress_bar_new();
   gtk_box_append(GTK_BOX(box), progress);
 
@@ -189,7 +233,7 @@ static void activate(GtkApplication *app, gpointer u) {
 
   gtk_window_present(GTK_WINDOW(win));
   on_refresh(NULL, NULL);
-  gui_log("Lufus Phase 1 ready. Real writes: use CLI with --real --yes.");
+  gui_log("Lufus Phase 2 ready. Real block flows: CLI 'create' with --real --yes.");
 }
 
 int lufus_gui_run(int argc, char **argv) {

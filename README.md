@@ -4,11 +4,11 @@ Fork of [pbatard/rufus](https://github.com/pbatard/rufus) (GPLv3), ported to Lin
 
 Goal: full-featured Linux-native port, including GUI — bootable USB creation, ISO/DD writing, partitioning, filesystems, checksums, persistence.
 
-## Status: Phase 1 done (v0.2.0) — see PHASES.md
+## Status: Phase 2 done (v0.3.0) — see PHASES.md
 
-Phase 1 delivers safe core: `list --json`, `probe --detail`,
-`checksum`, `write --dry-run/--real --verify`, GTK dry-run + progress.
-Phase 3 will be the stable v1.0 release.
+Phase 2 delivers bootable parity: `partition`, `format`,
+`extract`, `install-boot`, `persist`, `badblocks`, `create --mode dd|extract`,
+plus GUI mode/scheme/fs. Phase 3 will be the stable v1.0 release.
 
 ## Build (Linux scaffold)
 
