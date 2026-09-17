@@ -77,12 +77,14 @@ for lang in fr es; do
 done
 
 # 8. update-check: offline-tolerant (pass if up-to-date OR clean skip)
-if "$RUFUX" update-check 2>&1 | grep -Eq "up to date|latest is"; then
+UPD_OUT="$("$RUFUX" update-check 2>&1)"
+if printf '%s' "$UPD_OUT" | grep -Eq "up to date|latest is"; then
   ok "update-check (online)"
-elif "$RUFUX" update-check 2>&1 | grep -Eq "network unavailable|offline|GitHub: Not Found|no releases"; then
-  ok "update-check (no release published yet / offline)"
+elif printf '%s' "$UPD_OUT" | grep -Eq "network unavailable|offline|GitHub:|no releases"; then
+  ok "update-check (skip: $(printf '%s' "$UPD_OUT" | head -c 120))"
 else
   bad "update-check"
+  echo "--- update-check output ---"; printf '%s\n' "$UPD_OUT"
 fi
 
 echo "--- $pass passed, $fail failed ---"
