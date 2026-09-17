@@ -45,10 +45,11 @@ int lufus_update_check(const char *current_version, char *latest_out,
   const char *q2 = q1 ? strchr(q1 + 1, '"') : NULL;
   const char *q3 = q2 ? strchr(q2 + 1, '"') : NULL;
   const char *q4 = q3 ? strchr(q3 + 1, '"') : NULL;
-  if (!q4) { snprintf(err, errcap, "cannot parse tag_name"); return -1; }
-  size_t L = (size_t)(q4 - (q3 + 1));
+  // t=q1..q2 is the "tag_name" key, value sits between q2..q3
+  if (!q3) { snprintf(err, errcap, "cannot parse tag_name"); return -1; }
+  size_t L = (size_t)(q3 - (q2 + 1));
   if (L >= cap) L = cap - 1;
-  memcpy(latest_out, q3 + 1, L);
+  memcpy(latest_out, q2 + 1, L);
   latest_out[L] = 0;
   // strip leading 'v'
   if (latest_out[0] == 'v') memmove(latest_out, latest_out + 1, strlen(latest_out));
