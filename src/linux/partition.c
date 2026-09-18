@@ -40,20 +40,33 @@ int rufux_partition(const char *dst, const RufuxPartOpts *o,
   // Explicit field syntax (works across sfdisk generations):
   // single: one Linux/UEFI-usable partition; esp+main: 512MiB ESP + rest.
   // ESP type GUID C12A7328-F81F-11D2-BA4B-00A0C93EC93B (was a placeholder).
+  // MBR type follows the filesystem: BIOS boots FAT/NTFS partitions,
+  // never type 83 (Linux). gpt layouts need no boot flag (UEFI ignores
+  // it); every dos/MBR data partition gets flagged bootable.
+  const char *mbr_type = "0c";
+  if (o->fs_main) {
+    if (!strcmp(o->fs_main, "ntfs") || !strcmp(o->fs_main, "exfat") ||
+        !strcmp(o->fs_main, "udf"))
+      mbr_type = "07";
+    else if (!strcmp(o->fs_main, "ext4") || !strcmp(o->fs_main, "ext2") ||
+             !strcmp(o->fs_main, "ext3"))
+      mbr_type = "83";
+  }
   char script[1024];
   if (!strcmp(o->layout, "single")) {
     if (!strcmp(scheme, "gpt"))
       snprintf(script, sizeof script,
                "label: gpt\nstart=1MiB, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4\n");
     else
-      snprintf(script, sizeof script, "label: dos\nstart=1MiB, type=83\n");
+      snprintf(script, sizeof script, "label: dos\nstart=1MiB, type=%s, bootable\n",
+               mbr_type);
   } else if (!strcmp(scheme, "gpt")) {
     snprintf(script, sizeof script,
              "label: gpt\nsize=512MiB, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B\n"
              "type=0FC63DAF-8483-4772-8E79-3D69D8477DE4\n");
   } else {
     snprintf(script, sizeof script,
-             "label: dos\nsize=512MiB, type=ef\ntype=83\n");
+             "label: dos\nsize=512MiB, type=ef\ntype=%s, bootable\n", mbr_type);
   }
 
   if (o->dry_run) {

@@ -138,6 +138,7 @@ int rufux_stage_uefi_ntfs(const char *tmpdir, char *err, unsigned long cap) {
 int rufux_write_unattend(const char *dir, const char *wue,
                          char *err, unsigned long cap) {
   int bypass = 0, nro = 0, privacy = 0;
+  if (wue && !strcmp(wue, "none")) return 0; // explicitly disabled: write nothing
   if (wue && wue[0]) {
     char tmp[256];
     snprintf(tmp, sizeof tmp, ",%s,", wue);

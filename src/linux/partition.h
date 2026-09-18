@@ -5,7 +5,7 @@
 typedef struct {
   const char *scheme;  // "gpt" | "dos"
   const char *layout;  // "single" | "esp+main"
-  const char *fs_main; // informational only (vfat|ntfs|exfat|ext4)
+  const char *fs_main; // MBR partition type source (vfat->0c, ntfs/exfat->07); NULL = 0c
   int dry_run;
   int allow_fixed;
   int allow_file;

@@ -86,6 +86,19 @@ static void rescan_disk(const char *dst) {
   if (rufux_have("udevadm")) rufux_run(us, 0);
 }
 
+// Syslinux chainloader for BIOS (dos-scheme) flows. Best effort: without
+// the binary there is no partition boot code, so say so loudly.
+static int syslinux_best_effort(const char *part,
+                                RufuxCreateLog log, void *luser,
+                                char *err, unsigned long cap) {
+  if (!rufux_have("syslinux")) {
+    if (log) log("WARNING: syslinux not installed: no BIOS boot code written (install syslinux).", luser);
+    return 0;
+  }
+  if (log) log("Installing Syslinux bootloader...", luser);
+  return rufux_install_syslinux(part, 0, err, cap);
+}
+
 // Rufus dismounts the target's volumes before touching them instead of
 // refusing: unmount every mounted partition belonging to this disk.
 // Returns -1 if anything is still mounted afterwards.
@@ -268,7 +281,7 @@ static int flow_extract_disk(const char *src, const char *dst, const RufuxCreate
     return 0;
   }
 
-  RufuxPartOpts po = {.scheme = o->scheme, .layout = "esp+main", .dry_run = 0,
+  RufuxPartOpts po = {.scheme = o->scheme, .layout = "esp+main", .fs_main = o->fs, .dry_run = 0,
                       .allow_fixed = o->allow_fixed, .allow_file = 0, .yes = 1};
   if (rufux_partition(dst, &po, err, cap) != 0) return -1;
   stage(prog, puser, 4);
@@ -286,6 +299,13 @@ static int flow_extract_disk(const char *src, const char *dst, const RufuxCreate
   if (log) log(m, luser);
   if (rufux_format(p1, &mo, err, cap) != 0) return -1;
   stage(prog, puser, 8);
+  // BIOS flows need real boot code in the partition, not just an active
+  // flag: chainload Syslinux (FAT/ext only; NTFS has its own PBR path).
+  if (!strcmp(o->scheme, "dos") &&
+      (!strcmp(o->fs, "vfat") || !strcmp(o->fs, "fat32") ||
+       !strncmp(o->fs, "ext", 3))) {
+    if (syslinux_best_effort(p1, log, luser, err, cap) != 0) return -1;
+  }
   char mnt[512] = {0};
   if (rufux_mount(p1, 0, mnt, sizeof mnt, err, cap) != 0) return -1;
   int rc = 0;
@@ -347,7 +367,7 @@ static int flow_format(const char *dst, const RufuxCreateOpts *o,
              dst, o->scheme, o->fs);
     if (log) log(m, luser);
     if (o->dry_run) return 0;
-    RufuxPartOpts po = {.scheme = o->scheme, .layout = "single", .dry_run = 0,
+    RufuxPartOpts po = {.scheme = o->scheme, .layout = "single", .fs_main = o->fs, .dry_run = 0,
                         .allow_fixed = o->allow_fixed, .allow_file = 0, .yes = 1};
     if (rufux_partition(dst, &po, err, cap) != 0) return -1;
     stage(prog, puser, 30);
@@ -367,6 +387,11 @@ static int flow_format(const char *dst, const RufuxCreateOpts *o,
     if (log) log(m, luser);
     if (rufux_format(p1, &mo, err, cap) != 0) return -1;
     stage(prog, puser, 85);
+    if (!strcmp(o->scheme, "dos") &&
+        (!strcmp(o->fs, "vfat") || !strcmp(o->fs, "fat32") ||
+         !strncmp(o->fs, "ext", 3))) {
+      if (syslinux_best_effort(p1, log, luser, err, cap) != 0) return -1;
+    }
     RufuxBootOpts bo = {.kind = !strcmp(o->scheme, "gpt") ? "gpt" : "bios",
                         .dry_run = 0, .allow_fixed = o->allow_fixed, .yes = 1};
     if (rufux_install_mbr(dst, &bo, err, cap) != 0) return -1;
@@ -404,7 +429,7 @@ static int flow_dos(const char *dst, const RufuxCreateOpts *o,
     snprintf(err, cap, "FreeDOS payload not found (needs res/freedos or /usr/share/rufux/freedos)");
     return -1;
   }
-  RufuxPartOpts po = {.scheme = "dos", .layout = "single", .dry_run = 0,
+  RufuxPartOpts po = {.scheme = "dos", .layout = "single", .fs_main = "vfat", .dry_run = 0,
                       .allow_fixed = o->allow_fixed, .allow_file = 0, .yes = 1};
   if (rufux_partition(dst, &po, err, cap) != 0) return -1;
   stage(prog, puser, 10);
@@ -457,7 +482,7 @@ static int flow_windows(const char *src, const char *dst, const RufuxCreateOpts 
     log(m, luser);
     return 0;
   }
-  RufuxPartOpts po = {.scheme = gpt ? "gpt" : "dos",
+  RufuxPartOpts po = {.scheme = gpt ? "gpt" : "dos", .fs_main = gpt ? NULL : "ntfs",
                       .layout = gpt ? "esp+main" : "single",
                       .dry_run = 0, .allow_fixed = o->allow_fixed, .allow_file = 0, .yes = 1};
   if (rufux_partition(dst, &po, err, cap) != 0) return -1;

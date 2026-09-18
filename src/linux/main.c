@@ -36,7 +36,7 @@ static void usage(const char *p) {
          "  %s probe <file.iso> [--detail]\n"
          "  %s checksum <file> [--algo md5|sha1|sha256|sha512]\n"
          "  %s write SRC DST [--dry-run|--real] [--verify] [--allow-fixed] [--allow-file] [--yes]\n"
-         "  %s partition DST --scheme gpt|dos --layout single|esp+main [--dry-run|--real] [--allow-file] [--allow-fixed] [--yes]\n"
+         "  %s partition DST --scheme gpt|dos --layout single|esp+main [--fs vfat|ntfs|exfat|ext4] [--dry-run|--real] [--allow-file] [--allow-fixed] [--yes]\n"
          "  %s format DST --fs vfat|ntfs|exfat|ext4|udf [--label L] [--dry-run|--real] [--allow-file] [--allow-fixed] [--yes]\n"
          "  %s extract SRC.iso DEST_DIR [--dry-run]\n"
          "  %s install-boot DST --mbr bios|gpt [--dry-run|--real] [--allow-file] [--allow-fixed] [--yes]\n"
@@ -185,6 +185,7 @@ int main(int argc, char **argv) {
     for (int i = 3; i < argc; i++) {
       if (!strcmp(argv[i], "--scheme") && i + 1 < argc) o.scheme = argv[++i];
       else if (!strcmp(argv[i], "--layout") && i + 1 < argc) o.layout = argv[++i];
+      else if (!strcmp(argv[i], "--fs") && i + 1 < argc) o.fs_main = argv[++i];
       else if (!strcmp(argv[i], "--dry-run")) o.dry_run = 1;
       else if (!strcmp(argv[i], "--real")) o.dry_run = 0;
       else if (!strcmp(argv[i], "--allow-file")) o.allow_file = 1;

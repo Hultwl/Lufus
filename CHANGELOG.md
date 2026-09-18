@@ -1,6 +1,14 @@
 # Changelog
 
-## 1.2 (compare-list batch, part 2)
+## 1.2.1 (BIOS bootability)
+
+- MBR partitions get filesystem-correct types (vfat 0c, ntfs/exfat
+  07) plus the bootable flag — legacy BIOS media actually boots
+  now (proven the old table was type 83, unflagged).
+- Syslinux chainloader wired into BIOS flows (was dead code);
+  warns loudly when the binary is missing.
+- `--wue none` disables cleanly instead of erroring.
+- mkfs dead argv arrays removed.
 
 - FreeDOS bootable disks: DOS partition + FAT32 + KERNEL.SYS-first
   copy + FreeDOS boot record (ms-sys blobs, Linux-native writer) +

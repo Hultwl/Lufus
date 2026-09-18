@@ -57,6 +57,19 @@ int main(int argc, char **argv) {
     printf("FAIL bogus wue accepted\n");
     return 1;
   }
-  printf("ok wue-reject\nRESULT OK\n");
+  printf("ok wue-reject\n");
+  // "none" disables: rc 0, no file written
+  char none[1152];
+  snprintf(none, sizeof none, "%s/none", argv[1]);
+  if (mkdir(none, 0755) != 0) return 2;
+  if (rufux_write_unattend(none, "none", err, sizeof err) != 0) {
+    printf("FAIL wue none rejected: %s\n", err);
+    return 1;
+  }
+  char ax2[1152];
+  snprintf(ax2, sizeof ax2, "%s/autounattend.xml", none);
+  struct stat nst;
+  if (stat(ax2, &nst) == 0) { printf("FAIL wue none wrote file\n"); return 1; }
+  printf("ok wue-none\nRESULT OK\n");
   return 0;
 }

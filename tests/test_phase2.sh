@@ -135,6 +135,22 @@ else
   ok "exfat long label refused"
 fi
 
+# 9b. MBR partition type follows fs + bootable flag (BIOS bootability)
+PT="$TMP/pt.img"; truncate -s 64M "$PT"
+"$RUFUX" partition "$PT" --scheme dos --layout single --fs vfat --real --allow-file --yes >/dev/null 2>&1
+if sfdisk -d "$PT" 2>/dev/null | grep -q "type=c, bootable"; then
+  ok "dos partition fat+bootable"
+else
+  bad "dos partition fat+bootable"
+fi
+truncate -s 64M "$PT"
+"$RUFUX" partition "$PT" --scheme dos --layout single --fs ntfs --real --allow-file --yes >/dev/null 2>&1
+if sfdisk -d "$PT" 2>/dev/null | grep -q "type=7, bootable"; then
+  ok "dos partition ntfs+bootable"
+else
+  bad "dos partition ntfs+bootable"
+fi
+
 # 12. DOS boot records byte-exact (unit test vs ms-sys blobs).
 # Blob sizes come from the object symtab (headers contain stray hex).
 if command -v gcc >/dev/null 2>&1; then
