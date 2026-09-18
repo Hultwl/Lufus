@@ -46,6 +46,8 @@ packaging (PKGBUILD/Flatpak/man/desktop), CI, and a hardware matrix.
 - **v1.1.4**: Flathub attempt, then un-attempt (sandboxes and raw disks don't mix)
 - **v1.2**: FreeDOS boots, Windows install media, WUE answers
 - **v1.2.1**: MBR types + boot flags, syslinux wired in — legacy BIOS boots for real
+- **v1.2.2**: a real user burned a Win11 USB and got one README — UDF
+  under-extraction fixed with a loud failure, GUI form rebuilt
 
 The pattern: someone (usually a reviewer with QEMU) finds something real,
 it gets fixed with a regression test, it ships. That's the whole process.

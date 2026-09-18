@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.2.2 (UDF extraction fix + GUI cleanup)
+
+- Windows (UDF) ISOs extracted only the first file while reporting
+  success: bsdtar lists some UDF layouts as a single README and exits
+  0, so the disk was left with one file and "Done". UDF images now
+  route to 7z, non-UDF images keep bsdtar-first with a 7z fallback,
+  and an extraction that lands far short of the image size fails
+  loudly instead of finishing green.
+- Fixed a deadlock in command output capture: it stopped reading once
+  the buffer filled, which killed large-output tools (SIGPIPE) and
+  corrupted the result.
+- Windows ISO detection is now UDF-aware (probe reports udf: yes).
+- GUI: labels moved into a right-aligned column with controls beside
+  them (the Rufus shape) instead of stacked on their own rows, the
+  paired controls align to that column, persistence has its own row,
+  the form scrolls so START/CLOSE cannot be clipped, and the
+  boot-selection combo shows the picked image's name.
+
 ## 1.2.1 (BIOS bootability)
 
 - MBR partitions get filesystem-correct types (vfat 0c, ntfs/exfat
