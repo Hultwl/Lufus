@@ -50,7 +50,8 @@ int main(int argc, char **argv) {
   char ax[1152];
   snprintf(ax, sizeof ax, "%s/autounattend.xml", xml);
   const char *need[] = {"BypassTPMCheck", "BypassSecureBootCheck", "BypassNRO",
-                        "ProtectYourPC", "LabConfig", NULL};
+                        "ProtectYourPC", "LabConfig", "wcm:action",
+                        "PreventDeviceEncryption", "AcceptEula", NULL};
   for (int i = 0; need[i]; i++) {
     if (!contains(ax, need[i])) { printf("FAIL unattend lacks %s\n", need[i]); return 1; }
   }
