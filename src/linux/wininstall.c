@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include "wininstall.h"
+#include "iso_probe.h"
 #include "exec.h"
 #include <stdio.h>
 #include <string.h>
@@ -13,6 +14,28 @@
 int rufux_is_windows_iso(const char *iso, char *err, unsigned long cap) {
   struct stat st;
   if (stat(iso, &st) != 0) { snprintf(err, cap, "source '%s' missing", iso); return -1; }
+  // UDF images defeat bsdtar's listing the same way they defeat its
+  // extraction: list those with 7z instead.
+  if (rufux_iso_is_udf(iso) > 0) {
+    if (!rufux_have("7z")) { snprintf(err, cap, "need 7z to inspect UDF image"); return -1; }
+    const char *av[] = {"7z", "l", "-ba", iso, NULL};
+    char out[65536] = {0};
+    if (rufux_capture(av, out, sizeof out) != 0) return 0;
+    char *save = NULL, *line = strtok_r(out, "\n", &save);
+    while (line) {
+      while (*line == ' ' || *line == '\t') line++;
+      // trim trailing whitespace/CR (7z emits \r\n)
+      char *e = line + strlen(line);
+      while (e > line && (e[-1] == '\r' || e[-1] == ' ' || e[-1] == '\t')) *--e = 0;
+      const char *t = line + strlen(line);
+      while (t > line && t[-1] != '/' && t[-1] != '\\') t--;
+      if (!strcasecmp(t, "install.wim") || !strcasecmp(t, "install.esd") ||
+          !strcasecmp(t, "install.swm"))
+        return 1;
+      line = strtok_r(NULL, "\n", &save);
+    }
+    return 0;
+  }
   if (!rufux_have("bsdtar")) { snprintf(err, cap, "need bsdtar to inspect ISO"); return -1; }
   const char *av[] = {"bsdtar", "-tf", iso, NULL};
   char out[65536] = {0};

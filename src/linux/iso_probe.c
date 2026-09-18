@@ -58,15 +58,30 @@ int rufux_probe_iso_detail(const char *path, RufuxIsoInfo *info) {
     char werr[128] = {0};
     info->is_windows = rufux_is_windows_iso(path, werr, sizeof werr);
   }
+  info->is_udf = rufux_iso_is_udf(path);
   return 0;
 }
 
+// UDF Anchor Volume Descriptor Pointer lives at sector 256 (and N-256):
+// tag identifier 2, descriptor CRC follows. Enough to route the backend.
+int rufux_iso_is_udf(const char *path) {
+  FILE *f = fopen(path, "rb");
+  if (!f) return -1;
+  unsigned char sec[2048];
+  if (fseek(f, 256L * 2048, SEEK_SET) != 0) { fclose(f); return 0; }
+  if (fread(sec, 1, sizeof sec, f) != sizeof sec) { fclose(f); return 0; }
+  fclose(f);
+  unsigned tag = (unsigned)sec[0] | ((unsigned)sec[1] << 8);
+  return tag == 2 ? 1 : 0;
+}
+
 void rufux_print_iso_detail(const char *path, const RufuxIsoInfo *info) {
-  printf("file: %s\nsize: %llu bytes (%.2f MB)\nlabel: %s\nvalid_iso: %s\nbootable: %s\nefi_hint: %s\nwindows: %s\n",
+  printf("file: %s\nsize: %llu bytes (%.2f MB)\nlabel: %s\nvalid_iso: %s\nbootable: %s\nefi_hint: %s\nwindows: %s\nudf: %s\n",
          path, info->size_bytes, info->size_bytes / 1048576.0,
          info->label[0] ? info->label : "(none)",
          info->valid_iso ? "yes" : "no",
          info->bootable ? "yes" : "no",
          info->has_efi ? "yes" : "no",
-         info->is_windows > 0 ? "yes" : (info->is_windows == 0 ? "no" : "unknown"));
+         info->is_windows > 0 ? "yes" : (info->is_windows == 0 ? "no" : "unknown"),
+         info->is_udf > 0 ? "yes" : (info->is_udf == 0 ? "no" : "unknown"));
 }

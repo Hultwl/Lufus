@@ -1,6 +1,7 @@
 #define _GNU_SOURCE
 #include "extract.h"
 #include "exec.h"
+#include "iso_probe.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -30,10 +31,11 @@ static unsigned long long dir_size(const char *path) {
 }
 
 // Run extractor in a child while the parent polls destination growth.
-// total=0 disables progress (plain run).
+// total=0 disables progress (plain run). Returns extracted bytes via out.
 static int extract_poll(const char *const av[], const char *dest_dir,
                         unsigned long long total,
                         RufuxExtractProgress prog, void *user,
+                        unsigned long long *got_out,
                         char *err, unsigned long cap) {
   unsigned long long base = dir_size(dest_dir);
   pid_t pid = fork();
@@ -61,6 +63,10 @@ static int extract_poll(const char *const av[], const char *dest_dir,
     unsigned long long cur = dir_size(dest_dir);
     prog(cur > base ? cur - base : 0, total, user);
   }
+  if (got_out) {
+    unsigned long long cur = dir_size(dest_dir);
+    *got_out = cur > base ? cur - base : 0;
+  }
   if (rc != 0) snprintf(err, cap, "%s extract failed", av[0]);
   return rc;
 }
@@ -77,19 +83,50 @@ int rufux_extract_iso_progress(const char *src, const char *dest_dir, int dry_ru
       return -1;
     }
   }
-  if (rufux_have("bsdtar")) {
+  // Backend routing: UDF images go straight to 7z (bsdtar silently
+  // under-extracts some UDF layouts, e.g. Win11 media). Others prefer
+  // bsdtar with a 7z fallback.
+  int want_7z = rufux_iso_is_udf(src) > 0;
+  int have_bsdtar = rufux_have("bsdtar");
+  int rc = 0;
+  unsigned long long got = 0;
+  if (rufux_have("bsdtar") && !want_7z) {
     const char *av[] = {"bsdtar", "-xf", src, "-C", dest_dir, NULL};
     if (dry_run) { rufux_run(av, 1); return 0; }
-    return extract_poll(av, dest_dir, (prog && total) ? total : 0, prog, user, err, cap);
+    rc = extract_poll(av, dest_dir, (prog && total) ? total : 0, prog, user,
+                      &got, err, cap);
+    // bsdtar can exit 0 while under-extracting some UDF layouts: fall
+    // through to 7z instead of declaring success on a partial tree.
+    if (rc != 0 || (total > (50ULL << 20) && got * 4 < total)) {
+      if (rc == 0 && rufux_have("7z")) {
+        snprintf(err, cap, "bsdtar incomplete (%llu of %llu bytes), retrying with 7z",
+                 got, total);
+        have_bsdtar = 0; // force the 7z path below (keep err if it fails too)
+      } else {
+        if (rc != 0) return rc;
+        snprintf(err, cap, "extract incomplete (%llu of %llu bytes) and no 7z available",
+                 got, total);
+        return -1;
+      }
+    } else {
+      return rc;
+    }
   }
   if (rufux_have("7z")) {
     char out[1152];
     snprintf(out, sizeof out, "-o%s", dest_dir);
-    const char *av[] = {"7z", "x", src, out, NULL};
+    const char *av[] = {"7z", "x", src, "-y", out, NULL};
     if (dry_run) { rufux_run(av, 1); return 0; }
-    return extract_poll(av, dest_dir, (prog && total) ? total : 0, prog, user, err, cap);
+    rc = extract_poll(av, dest_dir, (prog && total) ? total : 0, prog, user,
+                      &got, err, cap);
+    if (rc == 0 && total > (50ULL << 20) && got * 4 < total) {
+      snprintf(err, cap, "extract incomplete (%llu of %llu bytes)", got, total);
+      return -1;
+    }
+    return rc;
   }
-  snprintf(err, cap, "need bsdtar or 7z for extraction");
+  if (!have_bsdtar && !rufux_have("7z"))
+    snprintf(err, cap, "need bsdtar or 7z for extraction (7z required for UDF)");
   return -1;
 }
 

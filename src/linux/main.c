@@ -95,6 +95,9 @@ static void cli_clog(const char *m, void *u) {
 // End-to-end flows live in src/linux/create.c (shared with the GUI).
 
 int main(int argc, char **argv) {
+  // Line-buffered stdout even into pipes: log lines must arrive live,
+  // not in one block at exit (GUI streams them).
+  setvbuf(stdout, NULL, _IOLBF, 0);
   rufux_i18n_init();
   if (argc >= 2 && (!strcmp(argv[1], "--gui") || !strcmp(argv[1], "gui")))
     return rufux_gui_run(argc, argv);

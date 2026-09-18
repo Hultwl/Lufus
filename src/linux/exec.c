@@ -60,12 +60,15 @@ int rufux_capture(const char *const av[], char *out, unsigned long cap) {
   size_t n = 0;
   ssize_t r;
   char buf[512];
+  // Drain to EOF even when the buffer is full: stopping early would
+  // leave the child blocked on a full pipe (SIGPIPE death).
   while ((r = read(fd[0], buf, sizeof buf)) > 0) {
     size_t take = (size_t)r;
-    if (n + take >= cap) take = cap - 1 - n;
-    memcpy(out + n, buf, take);
-    n += take;
-    if (n + 1 >= cap) break;
+    if (n < cap - 1) {
+      if (n + take >= cap) take = cap - 1 - n;
+      memcpy(out + n, buf, take);
+      n += take;
+    }
   }
   close(fd[0]);
   out[n] = 0;

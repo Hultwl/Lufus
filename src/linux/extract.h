@@ -1,6 +1,8 @@
 #ifndef RUFUX_EXTRACT_H
 #define RUFUX_EXTRACT_H
-// ISO -> directory via bsdtar (preferred) or 7z.
+// ISO -> directory. Backend is chosen by filesystem: UDF images go to
+// 7z (bsdtar silently under-extracts some UDF layouts), everything else
+// prefers bsdtar with a 7z fallback.
 typedef void (*RufuxExtractProgress)(unsigned long long done,
                                      unsigned long long total, void *user);
 int rufux_extract_iso(const char *src, const char *dest_dir, int dry_run,

@@ -9,9 +9,12 @@ typedef struct {
   int bootable;    // El Torito boot record present
   int has_efi;     // EFI boot image hint (eltorito platform 0xEF or BOOT.CAT ref)
   int is_windows;  // sources/install.wim|esd present (1) / no (-1 unknown if no bsdtar)
+  int is_udf;      // UDF filesystem present (needs 7z backend, not bsdtar)
 } RufuxIsoInfo;
 
 int rufux_probe_iso(const char *path, char *label_out, unsigned long cap);
 int rufux_probe_iso_detail(const char *path, RufuxIsoInfo *info);
 void rufux_print_iso_detail(const char *path, const RufuxIsoInfo *info);
+// 1 = UDF anchor found, 0 = no, -1 = unreadable.
+int rufux_iso_is_udf(const char *path);
 #endif
