@@ -1,27 +1,33 @@
 # Packaging Rufux
 
-## AppImage (recommended portable build)
+Three ways out the door. The AppImage is the one most people want.
+
+## AppImage (recommended)
 
 Attached to every GitHub release, built by
-`.github/workflows/appimage.yml` on Ubuntu 24.04 (GTK 4.10+ floor):
+`.github/workflows/appimage.yml` on Ubuntu 24.04:
 
 ```sh
 chmod +x Rufux-x86_64.AppImage
 ./Rufux-x86_64.AppImage   # opens the GUI; CLI via --help etc.
 ```
 
-Like the native package it shells out to host tools for
-formatting/partitioning (`dosfstools`, `ntfsprogs`, `exfatprogs`,
-`e2fsprogs`, `util-linux`, `syslinux`, `udisks2`, `libarchive`).
+Same deal as native: it shells out to host tools for the disk work
+(`dosfstools`, `ntfsprogs`, `exfatprogs`, `e2fsprogs`, `util-linux`,
+`syslinux`, `udisks2`, `libarchive`), so those need to be installed.
+No Flatpak — sandboxes and raw disks don't mix, tried that, walked away.
 
 ## Arch Linux (AUR)
 
-`packaging/PKGBUILD` builds from the `v1.0.0` tag:
+`packaging/PKGBUILD` builds from the release tag:
 
 ```sh
 cp packaging/PKGBUILD /tmp/rufux-pkg/ && cd /tmp/rufux-pkg
 makepkg -si
 ```
+
+Living on the edge? `packaging/aur/rufux-git/` tracks `main` instead —
+`paru -S rufux-git` and every rebuild follows the latest commit.
 
 ## From source (any distro)
 

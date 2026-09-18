@@ -131,9 +131,9 @@ don't weaken the SB chain. (Same reason Rufus's WUE XML is SB-safe.)
      without touching the disk; real runs end with a verification
      summary stamped EXPERIMENTAL.
 
-**Verdict: proceed.** Prior art exists and is GPL-compatible, the
-tooling story is understood, the GUIDs are documented (to be
-confirmed against the ISO dump), and the risk is bounded by the
-experimental flag + your hardware loop. The only thing that would
-change this verdict: if no Windows 11 ISO is available for ground
-truth — then we stop before writing code.
+**Verdict (update): parked, not dropped.** The research holds — prior
+art exists, tooling understood, GUIDs documented. What's missing is
+hardware, not answers: a 32GB+ *fast* USB stick (SSD-class — a bargain
+Cruzer would make Windows miserable), a Win11 ISO + license for ground
+truth, and appetite for 2-4 rounds of photographing bluescreens. Until
+those exist, this doc is the whole project. See `TODO.md`.

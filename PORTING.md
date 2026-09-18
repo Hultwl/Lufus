@@ -1,55 +1,54 @@
-# Rufux Porting Plan — Rufus (Windows) → Rufux (Linux)
+# How the port actually went
 
-Upstream: pbatard/rufus @ 2ea79910, ~46k LOC C (gnu11), Win10+ Win32, GPLv3.
+Upstream is pbatard/rufus at `2ea79910`: ~46k lines of C, Win32 only,
+Windows 10 and up. I kept it in-tree for reference and wrote everything
+Linux-native in `src/linux/` + `src/gui/`. No `windows.h` in our code,
+ever — that was the one hard rule.
 
-## What stays (portable, reuse as-is)
+## What I kept
 
-- `src/iso.c` + `src/libcdio/` (ISO9660/UDF), `src/bled/` (zstd/xz/gz), `src/wimlib/` minus `win32_*.c`, `src/hash.c`, `src/parser.c`, `src/xml.c`, `src/cregex*.c`
-- `src/ms-sys/` (MBR/PBR writers), `src/format_fat32.c`, `src/format_ext.c` + `src/ext2fs/` minus `nt_io.c`
-- Types: `mbr_types.h`, `gpt_types.h`, `efi.h`
-- Payloads: `res/grub*/`, `res/syslinux/*.sys|*.bss|*.c32`, `res/uefi/uefi-ntfs.img`, `res/mbr/*.S`, `res/dbx/*`, `res/freedos/*`, `res/loc/*`
+The portable guts: ISO9660/UDF parsing (`libcdio`), the `bled`
+decompressors, `wimlib`, the checksum/parser/XML helpers, the MBR and
+boot-record byte blobs from `ms-sys` (data, not code), and all the
+payloads in `res/` — GRUB, syslinux binaries, the UEFI:NTFS image,
+FreeDOS files, icons, upstream locales.
 
-## What must be rewritten (Windows-coupled)
+## What I rewrote (and with what)
 
-| Rufus file | Windows API | Linux replacement |
-|---|---|---|
-| `src/dev.c` | SetupDi + CfgMgr + `IOCTL_USB_*` | libudev + udisks2 + sysfs + usbfs reset |
-| `src/drive.c` | `IOCTL_DISK_*_LAYOUT_EX`, MountMgr, VDS | libfdisk / parted, `BLKRRPART`, udisks2 mount |
-| `src/format.c` | `fmifs!FormatEx`, `IVdsVolumeMF3_FormatEx2` | fork `mkfs.vfat/mkfs.ntfs/mkfs.exfat/mkfs.udf/mke2fs` |
-| `src/winio.h`, `src/stdio.c` | `\\.\PhysicalDriveN`, `FSCTL_LOCK/DISMOUNT`, overlapped | `open(O_DIRECT\|O_EXCL)` + `flock` + `BLKGETSIZE64` |
-| `src/rufus.c`, `src/ui.c`, `src/stdlg.c`, `rufus.rc`, `darkmode.c` | Win32 dialog/progress/statusbar | GTK4 + libadwaita (in `src/gui/`) |
-| `src/stdfn.c`, `src/process.c`, `registry.h` | `SE_*` privs, ACLs, `NtQueryObject` | `geteuid` + polkit + `/proc` + `fuser` |
-| `src/vhd.c` | `virtdisk.h` | `qemu-nbd` / libguestfs |
-| `src/wue.c` | `bcdboot/mountvol/bcdedit` | `grub-install`, `efibootmgr`, `sbsign` |
-| `src/net.c`, `src/pki.c` | `wininet`, `wincrypt/WinVerifyTrust` | `libcurl` + GnuTLS/openssl + PKCS#7 |
-| `ext2fs/nt_io.c`, `syslinux/win/ntfssect.c` | Win32 I/O shims | drop, use native Linux I/O |
+No libfdisk, no libadwaita, none of the fancy stuff from the original
+plan — plain tools called as subprocesses turned out to be enough and
+a lot easier to debug:
 
-## Milestones
+| Instead of (Windows) | I used (Linux) |
+|---|---|
+| SetupDi device enumeration | sysfs scan + `BLKGETSIZE64`, `/sys/block/*/size` fallback so sizes work unprivileged |
+| VDS + `fmifs!FormatEx` formatting | `mkfs.vfat/ntfs/exfat/ext4/udf` binaries |
+| `IOCTL_DISK_*_LAYOUT_EX` partitioning | `sfdisk` scripts (explicit field syntax — bare `;` lines break older versions, learned the hard way) |
+| `\\.\PhysicalDriveN` raw I/O | `open(O_DIRECT\|O_EXCL)` + `flock` + `fsync` + `BLKRRPART` |
+| Win32 dialog UI | GTK4 (plain, no libadwaita), portal-native file pickers |
+| Registry + services + `bcdboot` | dotfiles nowhere — polkit/`sudo`, udisks2 mounts, `grub-install` thinking (not yet needed) |
+| `wininet` downloads | `curl` subprocess for update checks |
+| VDS locking, `SE_*` privileges | `flock`, `geteuid` checks, pkexec-per-operation from the GUI |
 
-1. [x] Scaffold: CMake + `src/linux/` + `src/gui/` (this commit)
-2. [ ] `rufux list` — real udev enumeration + size/transport (USB vs NVMe filter)
-3. [ ] `rufux write --dry-run` — safe DD path with `O_EXCL`, progress, verify
-4. [ ] Partition + mkfs dispatch (libfdisk + mkfs.*)
-5. [ ] ISO extract (reuse libcdio/bled) + GRUB/syslinux install on Linux
-6. [ ] GTK4 feature-parity UI (device picker, ISO picker, log, progress)
-7. [ ] polkit privilege escalation, udisks2 mount, persistence, checksums
-8. [ ] Drop all `windows.h` from default Linux build
-
-## Safety rules
+Two rules that survived the whole project:
 
 - Never touch a non-removable device without explicit `--allow-fixed`.
-- Always `BLKRRPART` + verify + `fsync` before reporting success.
+- Everything destructive dry-runs first; real runs need `--real --yes`.
 
-## Rufus headline features: port status (audited)
+## Rufus headline features: where each one stands
 
-| Feature | Status | Notes |
+| Feature | Status | The real story |
 |---|---|---|
 | MD5 / SHA-1 / SHA-256 / SHA-512 | ✅ Done | OpenSSL EVP; `checksum --algo`, GUI `#` shows all four |
-| Fixed VHD images | ✅ Done | Footer parsed + checksum-verified, payload written, footer skipped; dynamic/VHDX refused with `qemu-img` pointer |
-| Bad-blocks multi-pattern scan | ✅ Done | Destructive 0xAA/0x55/0xFF/0x00 passes (1-4, rotating), per-1MB compare; read-only scan kept as default |
-| ReFS formatting | ❌ Out of scope | No Linux ReFS formatter exists (Microsoft proprietary; Linux driver is read-only). Refused with a message |
-| Windows To Go | ❌ Out of scope | Windows deployment (WIM apply + BCD store); needs Windows-licensed bits, no Linux-native path |
-| FreeDOS / MS-DOS bootable USB | ❌ Out of scope | Files are in-tree (`res/freedos/`), but a bootable disk needs a DOS boot-sector writer + SYS placement logic nobody has ported; copying files alone would fake it |
-| Official Windows ISO downloader | ❌ Out of scope | Rufus talks to Microsoft's download API; no sanctioned Linux path, and redistributing ISOs isn't an option |
-| Windows 11 TPM/Secure-Boot bypass | ❌ Out of scope | Offline Windows registry hive edits; possible via hivex in theory, not implemented |
-| 38-language UI | ⚠️ Partial | Our strings: EN + FR + ES via gettext (`po/`); `res/loc/` holds upstream Rufus's own translations, inherited not authored |
+| Fixed VHD images | ✅ Done | Footer parsed and checksum-verified, payload written, footer skipped; dynamic/VHDX refused with a `qemu-img` pointer |
+| Bad-blocks scan | ✅ Done | Read-only scan by default; `--write-patterns` does destructive 0xAA/0x55/0xFF/0x00 passes like Rufus |
+| FreeDOS bootable USB | ✅ Done (1.2) | Real DOS boot records from ms-sys blobs via a Linux-native writer, KERNEL.SYS copied first — byte-exact tested, not just copied files |
+| Windows install media | ✅ Done (1.2) | ESP + NTFS, ISO extract, UEFI:NTFS loader fetched from upstream, `autounattend.xml` with the Win11 bypasses |
+| TPM/Secure-Boot bypass | ✅ Done as WUE (1.2) | Same answer-file mechanism Rufus uses; no registry hacking on our side |
+| ReFS formatting | ❌ No | There is no Linux ReFS formatter — Microsoft never published one, the Linux driver is read-only. Refused with a message |
+| Windows ISO downloader | ❌ No | Microsoft serves ISOs through an authenticated web flow with no sanctioned API. `rufux download-windows` tells you the manual path instead of pretending |
+| Windows To Go (full OS on USB) | ⏸ Parked | Researched (`docs/wintogo-research.md`), feasible via wimlib + hivex-built BCD — but it needs a 32GB+ fast stick and multi-round boot testing I don't have lined up. See `docs/TODO.md` |
+| 38-language UI | ⚠️ Partial | Our own strings are EN + FR + ES via gettext. `res/loc/` is upstream's translation set — inherited, not mine |
+
+The pattern for the ❌ rows: I'd rather refuse with the real reason than
+ship something that looks like the feature and isn't.
