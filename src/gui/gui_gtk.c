@@ -336,24 +336,34 @@ static void on_select(GtkButton *btn, gpointer win) {
 static void on_hash(GtkButton *btn, gpointer win) {
   (void)btn;
   if (!has_iso) return;
-  gui_log("Computing SHA-256...");
-  while (g_main_context_iteration(NULL, FALSE)) {}
-  unsigned char sum[32];
-  char err[256] = {0};
-  if (rufux_sha256_file(sel_iso, sum, NULL, NULL, err, sizeof err) != 0) {
-    GtkWidget *e = gtk_message_dialog_new(GTK_WINDOW(win), GTK_DIALOG_MODAL,
-        GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE, "Checksum failed: %s", err);
-    g_signal_connect(e, "response", G_CALLBACK(gtk_window_destroy), NULL);
-    gtk_window_present(GTK_WINDOW(e));
-    return;
+  // Rufus-style checksum dialog: all four hashes, computed in order.
+  static const RufuxHashAlg algs[] = {RUFUX_MD5, RUFUX_SHA1, RUFUX_SHA256, RUFUX_SHA512};
+  char body[1024] = {0};
+  size_t off = 0;
+  for (unsigned i = 0; i < 4; i++) {
+    char msg[128];
+    snprintf(msg, sizeof msg, "Computing %s...", rufux_alg_name(algs[i]));
+    gui_log(msg);
+    while (g_main_context_iteration(NULL, FALSE)) {}
+    unsigned char sum[64] = {0};
+    unsigned len = 0;
+    char err[256] = {0};
+    if (rufux_hash_file(sel_iso, algs[i], sum, &len, NULL, NULL, err, sizeof err) != 0) {
+      GtkWidget *e = gtk_message_dialog_new(GTK_WINDOW(win), GTK_DIALOG_MODAL,
+          GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE, "Checksum failed: %s", err);
+      g_signal_connect(e, "response", G_CALLBACK(gtk_window_destroy), NULL);
+      gtk_window_present(GTK_WINDOW(e));
+      return;
+    }
+    char hex[129];
+    rufux_hex(sum, len, hex);
+    off += (size_t)snprintf(body + off, sizeof body - off, "%s:\n%s\n\n",
+                            rufux_alg_name(algs[i]), hex);
+    if (off >= sizeof body - 1) break;
   }
-  char hex[65];
-  rufux_hex32(sum, hex);
-  char full[1600];
-  snprintf(full, sizeof full, "SHA-256:\n%s\n\n%s", hex, sel_iso);
-  gui_log(full);
+  gui_log(body);
   GtkWidget *dlg = gtk_message_dialog_new(GTK_WINDOW(win), GTK_DIALOG_MODAL,
-      GTK_MESSAGE_INFO, GTK_BUTTONS_CLOSE, "SHA-256:\n%s", hex);
+      GTK_MESSAGE_INFO, GTK_BUTTONS_CLOSE, "%s", body);
   g_signal_connect(dlg, "response", G_CALLBACK(gtk_window_destroy), NULL);
   gtk_window_present(GTK_WINDOW(dlg));
 }

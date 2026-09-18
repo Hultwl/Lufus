@@ -93,6 +93,34 @@ else
   bad "vfat >4GiB refused"
 fi
 
+# 10. fixed VHD writes payload minus footer; dynamic refused
+python3 - "$TMP/fixed.vhd" "$TMP/dyn.vhd" <<'EOF'
+import sys, struct
+payload = bytes((i * 37) & 0xFF for i in range(4096))
+for p, dtype in ((sys.argv[1], 2), (sys.argv[2], 3)):
+    foot = bytearray(512)
+    foot[0:8] = b'conectix'
+    struct.pack_into('>I', foot, 8, 2)          # features
+    struct.pack_into('>Q', foot, 48, 4096)      # current size
+    struct.pack_into('>I', foot, 60, dtype)     # disk type
+    s = sum(b for i, b in enumerate(foot) if not 64 <= i < 68)
+    struct.pack_into('>I', foot, 64, (~s) & 0xFFFFFFFF)
+    open(p, 'wb').write(payload + bytes(foot))
+EOF
+VOUT="$TMP/vhd-out.img"; truncate -s 8K "$VOUT"
+"$RUFUX" write "$TMP/fixed.vhd" "$VOUT" --real --allow-file --yes --verify >/dev/null 2>&1 \
+  && cmp -n 4096 "$TMP/fixed.vhd" "$VOUT" && ok "fixed VHD payload" || bad "fixed VHD payload"
+if "$RUFUX" write "$TMP/dyn.vhd" "$VOUT" --real --allow-file --yes >/dev/null 2>&1; then
+  bad "dynamic VHD refused"
+else
+  ok "dynamic VHD refused"
+fi
+
+# 11. badblocks write-pattern pass on a file
+WB="$TMP/wb.img"; head -c 2097152 /dev/urandom > "$WB"
+"$RUFUX" badblocks "$WB" --allow-file --write-patterns 1 --yes >/dev/null 2>&1 \
+  && [ "$(head -c 1 "$WB" | od -An -tx1 | tr -d ' \n')" = "aa" ] && ok "badblocks write pass" || bad "badblocks write pass"
+
 # 9. over-long labels refused before any work (vfat 11, exfat 15, ext 16)
 LONG="ThisLabelIsDefinitelyWayTooLongForAnyFilesystem"
 if "$RUFUX" format "$F32" --fs vfat --label "$LONG" --real --allow-file --yes >/dev/null 2>&1; then

@@ -39,3 +39,17 @@ Upstream: pbatard/rufus @ 2ea79910, ~46k LOC C (gnu11), Win10+ Win32, GPLv3.
 
 - Never touch a non-removable device without explicit `--allow-fixed`.
 - Always `BLKRRPART` + verify + `fsync` before reporting success.
+
+## Rufus headline features: port status (audited)
+
+| Feature | Status | Notes |
+|---|---|---|
+| MD5 / SHA-1 / SHA-256 / SHA-512 | ✅ Done | OpenSSL EVP; `checksum --algo`, GUI `#` shows all four |
+| Fixed VHD images | ✅ Done | Footer parsed + checksum-verified, payload written, footer skipped; dynamic/VHDX refused with `qemu-img` pointer |
+| Bad-blocks multi-pattern scan | ✅ Done | Destructive 0xAA/0x55/0xFF/0x00 passes (1-4, rotating), per-1MB compare; read-only scan kept as default |
+| ReFS formatting | ❌ Out of scope | No Linux ReFS formatter exists (Microsoft proprietary; Linux driver is read-only). Refused with a message |
+| Windows To Go | ❌ Out of scope | Windows deployment (WIM apply + BCD store); needs Windows-licensed bits, no Linux-native path |
+| FreeDOS / MS-DOS bootable USB | ❌ Out of scope | Files are in-tree (`res/freedos/`), but a bootable disk needs a DOS boot-sector writer + SYS placement logic nobody has ported; copying files alone would fake it |
+| Official Windows ISO downloader | ❌ Out of scope | Rufus talks to Microsoft's download API; no sanctioned Linux path, and redistributing ISOs isn't an option |
+| Windows 11 TPM/Secure-Boot bypass | ❌ Out of scope | Offline Windows registry hive edits; possible via hivex in theory, not implemented |
+| 38-language UI | ⚠️ Partial | Our strings: EN + FR + ES via gettext (`po/`); `res/loc/` holds upstream Rufus's own translations, inherited not authored |

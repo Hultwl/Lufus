@@ -31,6 +31,7 @@ add_executable(rufux
   src/linux/boot.c
   src/linux/persist.c
   src/linux/badblocks.c
+  src/linux/vhd.c
   src/linux/create.c
   src/linux/mount.c
   src/linux/priv.c

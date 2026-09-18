@@ -14,6 +14,16 @@
 
 #define CHUNK (1u << 20)
 
+// fread capped at a remaining byte budget (VHD payload support).
+static size_t read_capped(FILE *f, char *buf, unsigned long long *remaining) {
+  size_t want = CHUNK;
+  if (*remaining < want) want = (size_t)*remaining;
+  if (want == 0) return 0;
+  size_t n = fread(buf, 1, want, f);
+  *remaining -= n;
+  return n;
+}
+
 int rufux_write_image(const char *src, const char *dst,
                       const RufuxWriteOpts *opts,
                       RufuxWriteProgress cb, void *user,
@@ -24,6 +34,14 @@ int rufux_write_image(const char *src, const char *dst,
     return -1;
   }
   unsigned long long total = (unsigned long long)sst.st_size;
+  // src_len caps the payload (fixed VHD skips its 512B footer); 0 = whole file.
+  if (opts->src_len > 0) {
+    if (opts->src_len > total) {
+      snprintf(err, errcap, "payload size exceeds file size");
+      return -1;
+    }
+    total = opts->src_len;
+  }
   if (total == 0) {
     snprintf(err, errcap, "source '%s' is empty", src);
     return -1;
@@ -50,9 +68,9 @@ int rufux_write_image(const char *src, const char *dst,
   if (opts->dry_run) {
     // simulate: read source fully, report progress, write nothing
     char *buf = malloc(CHUNK);
-    unsigned long long done = 0;
+    unsigned long long done = 0, rem = total;
     size_t n;
-    while ((n = fread(buf, 1, CHUNK, fin)) > 0) {
+    while ((n = read_capped(fin, buf, &rem)) > 0) {
       done += n;
       if (cb) cb(done, total, user);
     }
@@ -108,10 +126,10 @@ int rufux_write_image(const char *src, const char *dst,
     close(fd); fclose(fin);
     return -1;
   }
-  unsigned long long done = 0;
+  unsigned long long done = 0, rem = total;
   size_t n;
   int rc = 0;
-  while ((n = fread(buf, 1, CHUNK, fin)) > 0) {
+  while ((n = read_capped(fin, buf, &rem)) > 0) {
     size_t off = 0;
     while (off < n) {
       ssize_t w = write(fd, buf + off, n - off);
@@ -156,11 +174,11 @@ int rufux_write_image(const char *src, const char *dst,
       return -1;
     }
     char *ba = malloc(CHUNK), *bb = malloc(CHUNK);
-    unsigned long long vdone = 0;
+    unsigned long long vdone = 0, vrem = total;
     size_t na;
     // dst offset 0; for block, reads from start
     lseek(fb, 0, SEEK_SET);
-    while ((na = fread(ba, 1, CHUNK, fa)) > 0) {
+    while ((na = read_capped(fa, ba, &vrem)) > 0) {
       size_t got = 0;
       while (got < na) {
         ssize_t r = read(fb, bb + got, na - got);

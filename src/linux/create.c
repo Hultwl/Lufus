@@ -12,6 +12,7 @@
 #include "priv.h"
 #include "secureboot.h"
 #include "exec.h"
+#include "vhd.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -163,14 +164,17 @@ static int run_badblocks(const char *dst, int passes, int allow_file,
                          RufuxCreateLog log, void *luser,
                          char *err, unsigned long cap) {
   for (int i = 1; i <= passes; i++) {
-    char m[128];
-    snprintf(m, sizeof m, "Checking device for bad blocks: pass %d/%d...", i, passes);
+    char m[160];
+    snprintf(m, sizeof m, "Checking device for bad blocks (destructive write patterns): pass %d/%d...",
+             i, passes);
     if (log) log(m, luser);
     ProgMap pm = {prog, puser, base + span * (unsigned)(i - 1) / (unsigned)passes,
                   span / (unsigned)passes};
     unsigned long long bad = 0;
-    if (rufux_badblocks(dst, allow_file, prog ? (RufuxScanProgress)mapped : NULL, &pm,
-                        &bad, err, cap) != 0)
+    // One pattern per gate pass, rotating 0xAA/0x55/0xFF/0x00.
+    if (rufux_badblocks_write(dst, allow_file, 1, i - 1,
+                              prog ? (RufuxScanProgress)mapped : NULL, &pm,
+                              &bad, err, cap) != 0)
       return -1;
     snprintf(m, sizeof m, "Bad blocks pass %d/%d: %llu bad regions", i, passes, bad);
     if (log) log(m, luser);
@@ -181,6 +185,7 @@ static int run_badblocks(const char *dst, int passes, int allow_file,
 
 static int flow_dd(const char *src, const char *dst, const RufuxCreateOpts *o,
                    RufuxCreateProgress prog, void *puser,
+                   RufuxCreateLog log, void *luser,
                    char *err, unsigned long cap) {
   ProgMap wm = {prog, puser, 15, o->verify ? 70 : 85};
   ProgMap vm = {prog, puser, 85, 15};
@@ -188,6 +193,7 @@ static int flow_dd(const char *src, const char *dst, const RufuxCreateOpts *o,
                       .allow_fixed = o->allow_fixed, .allow_file = o->allow_file,
                       .yes = o->yes,
                       .vprog = prog ? (RufuxWriteProgress)mapped : NULL, .vuser = &vm};
+  if (rufux_vhd_adjust(src, &w, log, luser, err, cap) != 0) return -1;
   int rc = rufux_write_image(src, dst, &w, prog ? (RufuxWriteProgress)mapped : NULL, &wm,
                              err, cap);
   if (rc == 0) stage(prog, puser, 100);
@@ -413,7 +419,7 @@ int rufux_create(const char *src, const char *dst, const RufuxCreateOpts *o,
 
   int rc;
   if (!strcmp(o->mode, "dd")) {
-    rc = flow_dd(src, dst, o, prog, puser, err, errcap);
+    rc = flow_dd(src, dst, o, prog, puser, log, luser, err, errcap);
   } else if (!strcmp(o->mode, "extract")) {
     if (is_dir(dst)) rc = flow_extract_dir(src, dst, o, prog, puser, log, luser, err, errcap);
     else rc = flow_extract_disk(src, dst, o, prog, puser, log, luser, err, errcap);

@@ -15,6 +15,8 @@ typedef struct {
   // Optional separate verify-phase reporting (else cb is reused).
   RufuxWriteProgress vprog;
   void *vuser;
+  // Payload cap in bytes, 0 = whole file (fixed VHD skips its footer).
+  unsigned long long src_len;
 } RufuxWriteOpts;
 
 int rufux_write_image(const char *src, const char *dst,

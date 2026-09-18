@@ -19,6 +19,7 @@
 #include "linux/priv.h"
 #include "linux/secureboot.h"
 #include "linux/update.h"
+#include "linux/vhd.h"
 #include "linux/exec.h"
 #include "linux/i18n.h"
 #include "linux/create.h"
@@ -33,14 +34,14 @@ static void usage(const char *p) {
          "Usage:\n"
          "  %s list [--json] [--allow-fixed]\n"
          "  %s probe <file.iso> [--detail]\n"
-         "  %s checksum <file>\n"
+         "  %s checksum <file> [--algo md5|sha1|sha256|sha512]\n"
          "  %s write SRC DST [--dry-run|--real] [--verify] [--allow-fixed] [--allow-file] [--yes]\n"
          "  %s partition DST --scheme gpt|dos --layout single|esp+main [--dry-run|--real] [--allow-file] [--allow-fixed] [--yes]\n"
          "  %s format DST --fs vfat|ntfs|exfat|ext4|udf [--label L] [--dry-run|--real] [--allow-file] [--allow-fixed] [--yes]\n"
          "  %s extract SRC.iso DEST_DIR [--dry-run]\n"
          "  %s install-boot DST --mbr bios|gpt [--dry-run|--real] [--allow-file] [--allow-fixed] [--yes]\n"
          "  %s persist DIR --size MB [--label casper-rw] [--dry-run]\n"
-         "  %s badblocks DST [--allow-file]\n"
+         "  %s badblocks DST [--allow-file] [--write-patterns 1..4 --yes]\n"
          "  %s mount|umount DEV [--dry-run]\n"
          "  %s secureboot-status\n"
          "  %s validate-efi FILE\n"
@@ -129,14 +130,26 @@ int main(int argc, char **argv) {
     return info.valid_iso ? 0 : 2;
   }
   if (argc >= 3 && !strcmp(argv[1], "checksum")) {
-    unsigned char sum[32];
+    RufuxHashAlg alg = RUFUX_SHA256;
+    for (int i = 3; i < argc; i++) {
+      if (!strcmp(argv[i], "--algo") && i + 1 < argc) {
+        const char *a = argv[++i];
+        if (!strcmp(a, "md5")) alg = RUFUX_MD5;
+        else if (!strcmp(a, "sha1")) alg = RUFUX_SHA1;
+        else if (!strcmp(a, "sha256")) alg = RUFUX_SHA256;
+        else if (!strcmp(a, "sha512")) alg = RUFUX_SHA512;
+        else { fprintf(stderr, "unknown algo '%s' (md5|sha1|sha256|sha512)\n", a); return 2; }
+      }
+    }
+    unsigned char sum[64] = {0};
+    unsigned len = 0;
     char err[256] = {0};
-    if (rufux_sha256_file(argv[2], sum, cli_progress, NULL, err, sizeof err) != 0) {
+    if (rufux_hash_file(argv[2], alg, sum, &len, cli_progress, NULL, err, sizeof err) != 0) {
       fprintf(stderr, "checksum failed: %s\n", err);
       return 2;
     }
-    char hex[65];
-    rufux_hex32(sum, hex);
+    char hex[129];
+    rufux_hex(sum, len, hex);
     printf("%s  %s\n", hex, argv[2]);
     return 0;
   }
@@ -153,6 +166,10 @@ int main(int argc, char **argv) {
     }
     char err[512] = {0};
     if (!o.dry_run && rufux_need_root_for_block(argv[3], err, sizeof err) != 0) {
+      fprintf(stderr, "write failed: %s\n", err);
+      return 3;
+    }
+    if (rufux_vhd_adjust(argv[2], &o, cli_clog, NULL, err, sizeof err) != 0) {
       fprintf(stderr, "write failed: %s\n", err);
       return 3;
     }
@@ -266,11 +283,32 @@ int main(int argc, char **argv) {
     return 0;
   }
   if (argc >= 3 && !strcmp(argv[1], "badblocks")) {
-    int allow_file = 0;
-    for (int i = 3; i < argc; i++)
+    int allow_file = 0, wpasses = 0, yes = 0;
+    for (int i = 3; i < argc; i++) {
       if (!strcmp(argv[i], "--allow-file")) allow_file = 1;
+      else if (!strcmp(argv[i], "--write-patterns") && i + 1 < argc) wpasses = atoi(argv[++i]);
+      else if (!strcmp(argv[i], "--yes")) yes = 1;
+    }
     char err[512] = {0};
     unsigned long long bad = 0;
+    if (wpasses > 0) {
+      // Destructive write-pattern test: needs confirmation + root.
+      if (!yes) { fprintf(stderr, "badblocks: --write-patterns destroys data, add --yes\n"); return 2; }
+      struct stat bst;
+      if (stat(argv[2], &bst) == 0 && S_ISBLK(bst.st_mode) &&
+          rufux_need_root_for_block(argv[2], err, sizeof err) != 0) {
+        fprintf(stderr, "badblocks failed: %s\n", err);
+        return 3;
+      }
+      if (rufux_badblocks_write(argv[2], allow_file, wpasses, 0,
+                                cli_progress, NULL, &bad, err, sizeof err) != 0) {
+        fprintf(stderr, "badblocks failed: %s\n", err);
+        return 3;
+      }
+      printf("badblocks: %llu bad regions (0 = clean; %d write pattern pass(es), destructive)\n",
+             bad, wpasses < 1 ? 1 : (wpasses > 4 ? 4 : wpasses));
+      return bad == 0 ? 0 : 4;
+    }
     if (rufux_badblocks(argv[2], allow_file, cli_progress, NULL, &bad, err, sizeof err) != 0) {
       fprintf(stderr, "badblocks failed: %s\n", err);
       return 3;

@@ -63,6 +63,15 @@ if [ "$(sha256sum "$FAKE" | cut -d' ' -f1)" = "$("$RUFUX" checksum "$FAKE" | cut
 else
   bad "checksum matches sha256sum"
 fi
+# 3b. all four algos match system tools
+for a in "md5:md5sum" "sha1:sha1sum" "sha512:sha512sum"; do
+  algo="${a%%:*}"; tool="${a##*:}"
+  if [ "$($tool "$FAKE" | cut -d' ' -f1)" = "$("$RUFUX" checksum "$FAKE" --algo "$algo" | cut -d' ' -f1)" ]; then
+    ok "checksum $algo"
+  else
+    bad "checksum $algo"
+  fi
+done
 
 # 4. dry-run to a file target (needs --allow-file to pass target check, writes nothing)
 DST="$TMP/dst.img"
