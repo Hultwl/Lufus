@@ -61,9 +61,12 @@ int rufux_partition(const char *dst, const RufuxPartOpts *o,
       snprintf(script, sizeof script, "label: dos\nstart=1MiB, type=%s, bootable\n",
                mbr_type);
   } else if (!strcmp(scheme, "gpt")) {
+    // ESP + Windows/Linux data partition: the data volume carries a
+    // Windows-readable filesystem (NTFS/exFAT), so like Rufus it gets
+    // the Microsoft basic data type, not the Linux filesystem type.
     snprintf(script, sizeof script,
              "label: gpt\nsize=512MiB, type=C12A7328-F81F-11D2-BA4B-00A0C93EC93B\n"
-             "type=0FC63DAF-8483-4772-8E79-3D69D8477DE4\n");
+             "type=EBD0A0A2-B938-11D2-B3FA-00A0C93EC93B\n");
   } else {
     snprintf(script, sizeof script,
              "label: dos\nsize=512MiB, type=ef\ntype=%s, bootable\n", mbr_type);
