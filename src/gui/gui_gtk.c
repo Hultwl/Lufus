@@ -423,21 +423,21 @@ static int parse_cluster_sectors(const char *s) {  unsigned v = 0;
 // Non-blocking stream drain into a line accumulator. For worker stderr
 // (is_err) the last % in each chunk drives the bar + status; complete
 // \n lines are logged except pure progress lines. Never blocks the UI.
-static void drain_stream(GInputStream *s, char *acc, size_t *len, size_t cap, int is_err) {
-  if (!G_IS_POLLABLE_INPUT_STREAM(s)) return;
-  char buf[4096];
-  GError *e = NULL;
-  gssize n = g_pollable_input_stream_read_nonblocking(G_POLLABLE_INPUT_STREAM(s),
-                                                      buf, sizeof buf - 1, NULL, &e);
-  if (n <= 0) { g_clear_error(&e); return; }
-  buf[n] = 0;
+static char last_worker_err[1024] = {0}; // last real stderr line (for the failure dialog)
+
+static void feed_stream(const char *buf, gssize n, char *acc, size_t *len,
+                        size_t cap, int is_err) {
   if (is_err) {
-    char *pct = NULL, *q = buf;
+    char tmp[4096];
+    size_t tn = (size_t)n < sizeof tmp - 1 ? (size_t)n : sizeof tmp - 1;
+    memcpy(tmp, buf, tn);
+    tmp[tn] = 0;
+    char *pct = NULL, *q = tmp;
     while ((q = strchr(q, '%')) != NULL) { pct = q; q++; }
     if (pct) {
       int p = 0;
       char *st = pct - 1;
-      while (st >= buf && *st != '\r' && *st != '\n') st--;
+      while (st >= tmp && *st != '\r' && *st != '\n') st--;
       if (sscanf(st + 1, "%d%%", &p) == 1 && p >= 0 && p <= 100) {
         gtk_progress_bar_set_fraction(GTK_PROGRESS_BAR(progress), p / 100.0);
         char msg[64];
@@ -455,13 +455,41 @@ static void drain_stream(GInputStream *s, char *acc, size_t *len, size_t cap, in
     *nl = 0;
     char *t = line;
     while (*t == '\r' || *t == ' ') t++;
-    if (t[0] && !strchr(t, '%')) gui_log(t);
+    if (t[0] && !strchr(t, '%')) {
+      gui_log(t);
+      if (is_err) snprintf(last_worker_err, sizeof last_worker_err, "%s", t);
+    }
     line = nl + 1;
   }
   size_t rest = *len - (size_t)(line - acc);
   memmove(acc, line, rest);
   *len = rest;
   acc[*len] = 0;
+}
+
+static void drain_stream(GInputStream *s, char *acc, size_t *len, size_t cap, int is_err) {
+  if (!G_IS_POLLABLE_INPUT_STREAM(s)) return;
+  char buf[4096];
+  GError *e = NULL;
+  gssize n = g_pollable_input_stream_read_nonblocking(G_POLLABLE_INPUT_STREAM(s),
+                                                      buf, sizeof buf - 1, NULL, &e);
+  if (n <= 0) { g_clear_error(&e); return; }
+  buf[n] = 0;
+  feed_stream(buf, n, acc, len, cap, is_err);
+}
+
+// Blocking drain to EOF (only after the child is reaped: no writers
+// remain, so this returns immediately instead of hanging).
+static void drain_eof(GInputStream *s, char *acc, size_t *len, size_t cap, int is_err) {
+  char buf[4096];
+  for (;;) {
+    GError *e = NULL;
+    gssize n = g_input_stream_read(s, buf, sizeof buf - 1, NULL, &e);
+    g_clear_error(&e);
+    if (n <= 0) return;
+    buf[n] = 0;
+    feed_stream(buf, n, acc, len, cap, is_err);
+  }
 }
 
 // Log a trailing fragment that never got its newline (true EOF only).
@@ -697,6 +725,7 @@ static void on_start(GtkButton *b, gpointer win) {
   size_t out_len = 0;
   char err_acc[8192] = {0};
   size_t err_len = 0;
+  last_worker_err[0] = 0; // fresh run, fresh reason
   gboolean done = FALSE;
   // Worker stderr carries both \r progress and real error text (pkexec
   // auth failures, refusal reasons). Forward completed text lines to
@@ -705,14 +734,10 @@ static void on_start(GtkButton *b, gpointer win) {
     drain_stream(outs, out_acc, &out_len, sizeof out_acc, 0);
     drain_stream(errs, err_acc, &err_len, sizeof err_acc, 1);
     if (g_subprocess_get_if_exited(proc)) {
-      // Final drain until both pipes are quiet, then flush tails.
-      for (int i = 0; i < 40; i++) {
-        size_t before = out_len + err_len;
-        drain_stream(outs, out_acc, &out_len, sizeof out_acc, 0);
-        drain_stream(errs, err_acc, &err_len, sizeof err_acc, 1);
-        if (out_len + err_len == before) break;
-        g_usleep(20000);
-      }
+      // Child reaped: drain both pipes to EOF (blocking, immediate —
+      // no writers remain) so the tail can never be lost to timing.
+      drain_eof(outs, out_acc, &out_len, sizeof out_acc, 0);
+      drain_eof(errs, err_acc, &err_len, sizeof err_acc, 1);
       flush_tail(out_acc, &out_len);
       flush_tail(err_acc, &err_len);
       done = TRUE;
@@ -728,12 +753,17 @@ static void on_start(GtkButton *b, gpointer win) {
   gtk_widget_set_sensitive(start_btn, TRUE);
   gtk_widget_set_sensitive(close_btn, TRUE);
   if (!ok) {
-    char m[256];
-    snprintf(m, sizeof m, "Failed: worker exited with code %d (see log above).", code);
-    gui_log(m);
+    // The reason lives in the dialog now, not just "see the log": a
+    // worker failure must never again show up with an empty reason.
+    char detail[1152];
+    if (last_worker_err[0])
+      snprintf(detail, sizeof detail, "Failed (code %d): %s", code, last_worker_err);
+    else
+      snprintf(detail, sizeof detail, "Failed: worker exited with code %d.", code);
+    gui_log(detail);
     gui_status("Failed");
     GtkWidget *e = gtk_message_dialog_new(GTK_WINDOW(win), GTK_DIALOG_MODAL,
-        GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE, "Failed. See the log for details.");
+        GTK_MESSAGE_ERROR, GTK_BUTTONS_CLOSE, "%s", detail);
     g_signal_connect(e, "response", G_CALLBACK(gtk_window_destroy), NULL);
     gtk_window_present(GTK_WINDOW(e));
     return;
