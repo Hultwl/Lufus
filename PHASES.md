@@ -52,6 +52,9 @@ packaging (PKGBUILD/Flatpak/man/desktop), CI, and a hardware matrix.
   find/load NTFS driver") — the ESP carried the loader but not its
   NTFS driver, so the full EFI tree is staged now; Windows mode
   also pops the User Experience dialog like Rufus does
+- **v1.2.4**: hotfix — data partition typed Microsoft basic data,
+  GUI failure dialog shows the worker's error line (logs stopped
+  swallowing it)
 
 The pattern: someone (usually a reviewer with QEMU) finds something real,
 it gets fixed with a regression test, it ships. That's the whole process.

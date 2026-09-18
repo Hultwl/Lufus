@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.2.4 (hotfix: data partition type + loud GUI failures)
+
+- GPT data partition is typed Microsoft basic data now (was Linux
+  filesystem type) — matches Rufus; Windows Setup sees a Windows
+  data volume.
+- GUI failures carry the reason: worker pipes drain to EOF and the
+  error dialog shows the worker's last error line instead of "see
+  the log" above an empty log.
+- Includes the 1.2.3 boot fix (full UEFI:NTFS tree: loader plus
+  EFI/Rufus NTFS/exFAT drivers, so no more "couldn't find/load
+  NTFS driver") and the Windows User Experience dialog.
+
 ## 1.2.3 (UEFI:NTFS drivers + Windows User Experience dialog)
 
 - Windows USBs booted the UEFI:NTFS loader but stopped at
