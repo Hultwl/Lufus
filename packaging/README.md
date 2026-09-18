@@ -14,7 +14,8 @@ chmod +x Rufux-x86_64.AppImage
 
 Same deal as native: it shells out to host tools for the disk work
 (`dosfstools`, `ntfsprogs`, `exfatprogs`, `e2fsprogs`, `util-linux`,
-`syslinux`, `udisks2`, `libarchive`), so those need to be installed.
+`syslinux`, `udisks2`, `libarchive`, `p7zip`), so those need to be
+installed.
 No Flatpak — sandboxes and raw disks don't mix, tried that, walked away.
 
 ## Arch Linux (AUR)
@@ -40,4 +41,5 @@ sudo cmake --install build
 
 Runtime deps: `gtk4`, `udisks2`, `util-linux` (sfdisk), `openssl`,
 `dosfstools`, `ntfsprogs`, `exfatprogs`, `e2fsprogs`,
-`libarchive` (bsdtar) or `p7zip`, `syslinux`, `curl`.
+`libarchive` (bsdtar), `p7zip` (7z — required for UDF/Windows
+ISOs, which bsdtar under-extracts), `syslinux`, `curl`.

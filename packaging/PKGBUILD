@@ -14,7 +14,7 @@ optdepends=(
   'exfatprogs: exFAT formatting (mkfs.exfat)'
   'e2fsprogs: ext4 formatting and persistence'
   'libarchive: ISO extraction (bsdtar)'
-  'p7zip: ISO extraction fallback (7z)'
+  'p7zip: required for UDF/Windows ISOs, fallback otherwise (7z)'
   'syslinux: BIOS/GPT MBR + syslinux install'
   'grub: GRUB bootloader install'
   'xorriso: ISO building for tests'
