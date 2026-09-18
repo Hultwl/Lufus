@@ -2,6 +2,7 @@
 # Phase 2 acceptance: partition, format, extract, boot, persist, badblocks, create.
 set -u
 RUFUX="${1:-./build/rufux}"
+SRC_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 pass=0; fail=0
@@ -133,6 +134,47 @@ if "$RUFUX" format "$FX" --fs exfat --label "SixteenCharsLong!" --real --allow-f
 else
   ok "exfat long label refused"
 fi
+
+# 12. DOS boot records byte-exact (unit test vs ms-sys blobs).
+# Blob sizes come from the object symtab (headers contain stray hex).
+if command -v gcc >/dev/null 2>&1; then
+  gcc -c "$SRC_DIR/src/linux/dosboot.c" -I "$SRC_DIR/src" -o "$TMP/dosboot.o" 2>"$TMP/tdos.log" \
+  && gcc -o "$TMP/tdos" "$SRC_DIR/tests/ctest_dosboot.c" "$TMP/dosboot.o" "$SRC_DIR/src/linux/exec.c" -I "$SRC_DIR/src" 2>>"$TMP/tdos.log" \
+  && SZ0=$(nm -S "$TMP/dosboot.o" | awk '$4=="br_fat32_0x0"{print strtonum("0x"$2)}') \
+  && SZ52=$(nm -S "$TMP/dosboot.o" | awk '$4=="br_fat32_0x52"{print strtonum("0x"$2)}') \
+  && SZ3F0=$(nm -S "$TMP/dosboot.o" | awk '$4=="br_fat32_0x3f0"{print strtonum("0x"$2)}') \
+  && SZMBR=$(nm -S "$TMP/dosboot.o" | awk '$4=="mbr_dos_0x0"{print strtonum("0x"$2)}') \
+  && head -c 2097152 /dev/zero > "$TMP/dospart.img" \
+  && "$TMP/tdos" "$TMP/dospart.img" "$SZ0" "$SZ52" "$SZ3F0" "$SZMBR" 1048576 | tee "$TMP/tdos.out" | grep -q "RESULT OK" \
+  && ok "dos boot records" || { bad "dos boot records"; tail -5 "$TMP/tdos.log" "$TMP/tdos.out" 2>/dev/null; }
+else
+  ok "dos boot records (skipped: no gcc)"
+fi
+
+# 13. UEFI:NTFS staging + autounattend (unit test, rootless via RUFUX_RES)
+if command -v gcc >/dev/null 2>&1; then
+  gcc -o "$TMP/twin" "$SRC_DIR/tests/ctest_wininstall.c" "$SRC_DIR/src/linux/wininstall.c" "$SRC_DIR/src/linux/exec.c" -I "$SRC_DIR/src" 2>"$TMP/twin.log" \
+    && RUFUX_RES="$SRC_DIR/res" "$TMP/twin" "$TMP/wt" | tee "$TMP/twin.out" | grep -q "RESULT OK" \
+    && ok "uefi stage + unattend" || { bad "uefi stage + unattend"; tail -5 "$TMP/twin.log" "$TMP/twin.out" 2>/dev/null; }
+else
+  ok "uefi stage + unattend (skipped: no gcc)"
+fi
+
+# 14. Windows ISO detection (xorriso fixture with sources/install.wim)
+mkdir -p "$TMP/wintree/sources" && head -c 65536 /dev/urandom > "$TMP/wintree/sources/install.wim"
+if xorriso -as mkisofs -quiet -V WIN11 -o "$TMP/win.iso" "$TMP/wintree" 2>/dev/null \
+  && "$RUFUX" probe "$TMP/win.iso" --detail | grep -q 'windows: yes'; then
+  ok "windows iso detect"
+else
+  bad "windows iso detect"
+fi
+
+# 15. dos + windows dry-run plans
+truncate -s 64M "$TMP/dosplan.img"
+"$RUFUX" create none "$TMP/dosplan.img" --mode dos --dry-run --allow-file 2>&1 | grep -q "FreeDOS" \
+  && ok "dos dry-run plan" || bad "dos dry-run plan"
+"$RUFUX" create "$TMP/win.iso" "$TMP/diskw.img" --mode windows --scheme gpt --dry-run --allow-file 2>&1 | grep -q "install-boot" \
+  && ok "windows disk plan" || bad "windows disk plan"
 
 echo "--- $pass passed, $fail failed ---"
 [ "$fail" -eq 0 ]

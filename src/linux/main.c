@@ -46,9 +46,10 @@ static void usage(const char *p) {
          "  %s secureboot-status\n"
          "  %s validate-efi FILE\n"
          "  %s update-check\n"
-         "  %s create SRC|none DST --mode dd|extract|format [--scheme gpt|dos] [--fs vfat|ntfs|exfat|ext4|udf] [--label L] [--persist-mb N] [--cluster-sectors N] [--badblock-passes N] [--quick|--full] [--no-autorun] [--uefi-validate] [--dry-run|--real] [--allow-file] [--allow-fixed] [--yes] [--verify]\n"
+         "  %s create SRC|none DST --mode dd|extract|format|dos|windows [--scheme gpt|dos] [--fs vfat|ntfs|exfat|ext4|udf] [--label L] [--persist-mb N] [--cluster-sectors N] [--badblock-passes N] [--wue bypass,nro,privacy,all,none] [--quick|--full] [--no-autorun] [--uefi-validate] [--dry-run|--real] [--allow-file] [--allow-fixed] [--yes] [--verify]\n"
+         "  %s download-windows\n"
          "  %s --gui [--theme system|dark|light]\n",
-         RUFUX_VERSION, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p);
+         RUFUX_VERSION, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p, p);
 }
 
 static void cli_progress(unsigned long long done, unsigned long long total, void *u) {
@@ -390,9 +391,10 @@ int main(int argc, char **argv) {
       else if (!strcmp(argv[i], "--full")) o.quick_format = 0;
       else if (!strcmp(argv[i], "--no-autorun")) o.extended_label = 0;
       else if (!strcmp(argv[i], "--uefi-validate")) o.uefi_validate = 1;
+      else if (!strcmp(argv[i], "--wue") && i + 1 < argc) o.wue = argv[++i];
     }
-    if ((!strcmp(o.mode, "dd") || !strcmp(o.mode, "extract")) && !src) {
-      fprintf(stderr, "create: --mode %s needs an image (use 'none' only with --mode format)\n", o.mode);
+    if ((!strcmp(o.mode, "dd") || !strcmp(o.mode, "extract") || !strcmp(o.mode, "windows")) && !src) {
+      fprintf(stderr, "create: --mode %s needs an image (use 'none' only with --mode format|dos)\n", o.mode);
       return 2;
     }
     char err[1024] = {0};
@@ -402,10 +404,23 @@ int main(int argc, char **argv) {
     }
     return 0;
   }
-  // Double-click / app-grid behavior like upstream Rufus: with no
+  // Double-click / app-grid behavior like upstream Rufus: with NO
   // arguments and a display available, open the GUI instead of usage.
-  if (getenv("DISPLAY") || getenv("WAYLAND_DISPLAY"))
+  if (argc == 1 && (getenv("DISPLAY") || getenv("WAYLAND_DISPLAY")))
     return rufux_gui_run(argc, argv);
+  if (argc >= 2 && !strcmp(argv[1], "download-windows")) {
+    printf("Rufux cannot download Windows ISOs for you: Microsoft serves\n"
+           "them through an authenticated web flow with no sanctioned API.\n"
+           "\n"
+           "  1. Fetch the ISO yourself:\n"
+           "     https://www.microsoft.com/software-download/windows11\n"
+           "  2. Write it as installation media:\n"
+           "     sudo rufux create Win11.iso /dev/sdX --mode windows --wue bypass,nro --real --yes\n"
+           "\n"
+           "Use --mode windows (not dd): install.wim usually exceeds 4 GiB,\n"
+           "so the image goes to NTFS with UEFI:NTFS boot files on the ESP.\n");
+    return 0;
+  }
   usage(argv[0]);
   return 0;
 }

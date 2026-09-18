@@ -8,6 +8,7 @@ typedef struct {
   int valid_iso;   // PVD magic present
   int bootable;    // El Torito boot record present
   int has_efi;     // EFI boot image hint (eltorito platform 0xEF or BOOT.CAT ref)
+  int is_windows;  // sources/install.wim|esd present (1) / no (-1 unknown if no bsdtar)
 } RufuxIsoInfo;
 
 int rufux_probe_iso(const char *path, char *label_out, unsigned long cap);

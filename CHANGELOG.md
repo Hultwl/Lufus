@@ -1,6 +1,17 @@
 # Changelog
 
-## 1.1.5 (compare-list batch)
+## 1.2 (compare-list batch, part 2)
+
+- FreeDOS bootable disks: DOS partition + FAT32 + KERNEL.SYS-first
+  copy + FreeDOS boot record (ms-sys blobs, Linux-native writer) +
+  DOS MBR. Boot picker entry included, byte-exact tested.
+- Windows installation media: ESP + NTFS, ISO extract, UEFI:NTFS
+  loader fetched from upstream and cached, autounattend.xml with
+  Win11 requirement bypasses (TPM/SB/RAM/CPU/storage), NRO and
+  privacy options. GUI auto-detects Windows ISOs.
+- Honest refusals: ReFS (no Linux formatter), Windows ISO
+  downloader (`download-windows` explains the manual path).
+- Scope table updated: what shipped vs what stays out and why.
 
 - Checksums x4: md5/sha1/sha256/sha512 (EVP), CLI `--algo`,
   GUI dialog shows all four.

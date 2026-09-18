@@ -13,6 +13,8 @@
 #include "secureboot.h"
 #include "exec.h"
 #include "vhd.h"
+#include "dosboot.h"
+#include "wininstall.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -67,6 +69,21 @@ static int is_dir(const char *p) {
 static int is_block(const char *p) {
   struct stat st;
   return stat(p, &st) == 0 && S_ISBLK(st.st_mode);
+}
+
+// Wait for a partition node after partprobe+settle.
+static int wait_node(const char *p1, char *err, unsigned long cap) {
+  int waited = 0;
+  while (access(p1, F_OK) != 0 && waited < 100) { usleep(100000); waited++; }
+  if (access(p1, F_OK) != 0) { snprintf(err, cap, "partition '%s' did not appear", p1); return -1; }
+  return 0;
+}
+
+static void rescan_disk(const char *dst) {
+  const char *pp[] = {"partprobe", dst, NULL};
+  if (rufux_have("partprobe")) rufux_run(pp, 0);
+  const char *us[] = {"udevadm", "settle", NULL};
+  if (rufux_have("udevadm")) rufux_run(us, 0);
 }
 
 // Rufus dismounts the target's volumes before touching them instead of
@@ -255,13 +272,8 @@ static int flow_extract_disk(const char *src, const char *dst, const RufuxCreate
                       .allow_fixed = o->allow_fixed, .allow_file = 0, .yes = 1};
   if (rufux_partition(dst, &po, err, cap) != 0) return -1;
   stage(prog, puser, 4);
-  const char *pp[] = {"partprobe", dst, NULL};
-  if (rufux_have("partprobe")) rufux_run(pp, 0);
-  const char *us[] = {"udevadm", "settle", NULL};
-  if (rufux_have("udevadm")) rufux_run(us, 0);
-  int waited = 0;
-  while (access(p1, F_OK) != 0 && waited < 100) { usleep(100000); waited++; }
-  if (access(p1, F_OK) != 0) { snprintf(err, cap, "partition '%s' did not appear", p1); return -1; }
+  rescan_disk(dst);
+  if (wait_node(p1, err, cap) != 0) return -1;
   if (!o->quick_format) {
     ProgMap zm = {prog, puser, 4, 2};
     if (zero_head(p1, log, luser, prog ? (RufuxCreateProgress)mapped : NULL, &zm,
@@ -339,15 +351,10 @@ static int flow_format(const char *dst, const RufuxCreateOpts *o,
                         .allow_fixed = o->allow_fixed, .allow_file = 0, .yes = 1};
     if (rufux_partition(dst, &po, err, cap) != 0) return -1;
     stage(prog, puser, 30);
-    const char *pp[] = {"partprobe", dst, NULL};
-    if (rufux_have("partprobe")) rufux_run(pp, 0);
-    const char *us[] = {"udevadm", "settle", NULL};
-    if (rufux_have("udevadm")) rufux_run(us, 0);
+    rescan_disk(dst);
     char p1[160];
     rufux_part1(dst, p1, sizeof p1);
-    int waited = 0;
-    while (access(p1, F_OK) != 0 && waited < 100) { usleep(100000); waited++; }
-    if (access(p1, F_OK) != 0) { snprintf(err, cap, "partition '%s' did not appear", p1); return -1; }
+    if (wait_node(p1, err, cap) != 0) return -1;
     if (!o->quick_format) {
       ProgMap zm = {prog, puser, 30, 10};
       if (zero_head(p1, log, luser, prog ? (RufuxCreateProgress)mapped : NULL, &zm,
@@ -375,6 +382,181 @@ static int flow_format(const char *dst, const RufuxCreateOpts *o,
   if (rufux_format(dst, &mo, err, cap) != 0) return -1;
   stage(prog, puser, 100);
   return 0;
+}
+
+// FreeDOS bootable disk: DOS partition + FAT + system files (KERNEL.SYS
+// first) + FreeDOS boot record + DOS MBR. src is unused ("none").
+// Layout: partition 0-10, format 10-20, files 20-70, boot records 70-85,
+// unmount 85-100.
+static int flow_dos(const char *dst, const RufuxCreateOpts *o,
+                    RufuxCreateProgress prog, void *puser,
+                    RufuxCreateLog log, void *luser,
+                    char *err, unsigned long cap) {
+  char m[512];
+  if (log) log("Plan: DOS partition, FAT32, FreeDOS system files + boot record, DOS MBR", luser);
+  if (o->dry_run) return 0;
+  if (!is_block(dst)) {
+    snprintf(err, cap, "dos mode needs a block device (got '%s')", dst);
+    return -1;
+  }
+  const char *fd = rufux_freedos_dir();
+  if (!fd) {
+    snprintf(err, cap, "FreeDOS payload not found (needs res/freedos or /usr/share/rufux/freedos)");
+    return -1;
+  }
+  RufuxPartOpts po = {.scheme = "dos", .layout = "single", .dry_run = 0,
+                      .allow_fixed = o->allow_fixed, .allow_file = 0, .yes = 1};
+  if (rufux_partition(dst, &po, err, cap) != 0) return -1;
+  stage(prog, puser, 10);
+  rescan_disk(dst);
+  char p1[160];
+  rufux_part1(dst, p1, sizeof p1);
+  if (wait_node(p1, err, cap) != 0) return -1;
+  RufuxMkfsOpts mo = {.fs = "vfat", .label = o->label, .cluster_sectors = o->cluster_sectors,
+                      .dry_run = 0, .allow_fixed = o->allow_fixed, .allow_file = 0, .yes = 1};
+  if (rufux_format(p1, &mo, err, cap) != 0) return -1;
+  stage(prog, puser, 20);
+  char mnt[512] = {0};
+  if (rufux_mount(p1, 0, mnt, sizeof mnt, err, cap) != 0) return -1;
+  int rc = 0;
+  if (rufux_dos_copy_files(fd, mnt, err, cap) != 0) rc = -1;
+  stage(prog, puser, 70);
+  char uerr[512] = {0};
+  if (rufux_unmount(p1, 0, uerr, sizeof uerr) != 0 && !rc) {
+    snprintf(err, cap, "files copied but unmount failed: %s", uerr);
+    rc = -1;
+  }
+  if (!rc) {
+    // Boot records go on after unmount (raw device access, mounts stay clean).
+    char lab[12] = {0};
+    snprintf(lab, sizeof lab, "%s", o->label ? o->label : "FREEDOS");
+    if (rufux_dos_pbr_fd32(p1, 0, lab, err, cap) != 0) rc = -1;
+    else if (rufux_dos_mbr(dst, err, cap) != 0) rc = -1;
+  }
+  stage(prog, puser, rc ? 70 : 100);
+  return rc;
+}
+
+// Windows installation media: ESP (FAT32) + NTFS with the ISO extracted,
+// UEFI:NTFS boot files on the ESP, optional unattended-answer XML.
+// Layout: partition 0-5, formats 5-10, extract 10-80, ESP+unattend 80-88,
+// validate 88-90, unmount+MBR 90-100. Legacy dos scheme: single NTFS.
+static int flow_windows(const char *src, const char *dst, const RufuxCreateOpts *o,
+                        RufuxCreateProgress prog, void *puser,
+                        RufuxCreateLog log, void *luser,
+                        char *err, unsigned long cap) {
+  char m[1024], p1[160];
+  int gpt = strcmp(o->scheme, "dos");
+  rufux_part1(dst, p1, sizeof p1);
+  if (o->dry_run && log) {
+    snprintf(m, sizeof m, "steps:\n  1. partition %s %s (%s)\n  2. format ESP vfat + main ntfs\n"
+             "  3. mount both, extract %s -> NTFS\n  4. UEFI:NTFS payload -> ESP\n"
+             "  5. autounattend.xml (%s)\n  6. install-boot %s",
+             dst, gpt ? "gpt/esp+main" : "dos/single", o->scheme, src,
+             o->wue ? o->wue : "bypass", dst);
+    log(m, luser);
+    return 0;
+  }
+  RufuxPartOpts po = {.scheme = gpt ? "gpt" : "dos",
+                      .layout = gpt ? "esp+main" : "single",
+                      .dry_run = 0, .allow_fixed = o->allow_fixed, .allow_file = 0, .yes = 1};
+  if (rufux_partition(dst, &po, err, cap) != 0) return -1;
+  stage(prog, puser, 5);
+  rescan_disk(dst);
+  if (wait_node(p1, err, cap) != 0) return -1;
+  RufuxMkfsOpts esp_o = {.fs = "vfat", .label = "ESP", .dry_run = 0,
+                         .allow_fixed = o->allow_fixed, .allow_file = 0, .yes = 1};
+  RufuxMkfsOpts main_o = {.fs = "ntfs", .label = o->label, .cluster_sectors = o->cluster_sectors,
+                          .dry_run = 0, .allow_fixed = o->allow_fixed, .allow_file = 0, .yes = 1};
+  char esp[160] = {0}, main[160] = {0};
+  if (gpt) {
+    // p1 is the ESP; the main partition follows it (p1 with trailing 1 -> 2).
+    snprintf(esp, sizeof esp, "%s", p1);
+    size_t L = strlen(p1);
+    snprintf(main, sizeof main, "%s", p1);
+    if (L > 0 && main[L - 1] == '1') main[L - 1] = '2';
+    else { snprintf(err, cap, "cannot derive main partition from '%s'", p1); return -1; }
+    if (rufux_format(esp, &esp_o, err, cap) != 0) return -1;
+    if (wait_node(main, err, cap) != 0) return -1;
+    if (rufux_format(main, &main_o, err, cap) != 0) return -1;
+  } else {
+    snprintf(main, sizeof main, "%s", p1);
+    if (rufux_format(main, &main_o, err, cap) != 0) return -1;
+  }
+  stage(prog, puser, 10);
+  char mnt_main[512] = {0}, mnt_esp[512] = {0};
+  if (rufux_mount(main, 0, mnt_main, sizeof mnt_main, err, cap) != 0) return -1;
+  int rc = 0;
+  if (gpt && rufux_mount(esp, 0, mnt_esp, sizeof mnt_esp, err, cap) != 0) rc = -1;
+  ProgMap em = {prog, puser, 10, 70};
+  if (!rc && rufux_extract_iso_progress(src, mnt_main, 0,
+                                       prog ? (RufuxExtractProgress)mapped : NULL, &em,
+                                       err, cap) != 0)
+    rc = -1;
+  if (!rc && gpt) {
+    // Stage UEFI:NTFS payload to a temp dir (mtools, no mount), then copy.
+    char tmp[] = "/tmp/rufux-uefi-XXXXXX";
+    if (!mkdtemp(tmp)) { snprintf(err, cap, "mkdtemp failed"); rc = -1; }
+    else {
+      if (rufux_stage_uefi_ntfs(tmp, err, cap) != 0) rc = -1;
+      else {
+        char s[1152], t[1152];
+        snprintf(s, sizeof s, "%s/esp/.", tmp);
+        snprintf(t, sizeof t, "%s", mnt_esp);
+        const char *av[] = {"cp", "-a", s, t, NULL};
+        if (rufux_run(av, 0) != 0) { snprintf(err, cap, "ESP copy failed"); rc = -1; }
+      }
+      char rm[1152];
+      snprintf(rm, sizeof rm, "%s/esp", tmp);
+      rmdir(rm);
+      rmdir(tmp);
+    }
+  }
+  if (!rc && o->wue && strcmp(o->wue, "none")) {
+    if (rufux_write_unattend(mnt_main, o->wue, err, cap) != 0) rc = -1;
+    else if (log) log("Windows User Experience: autounattend.xml written.", luser);
+  }
+  stage(prog, puser, 88);
+  if (!rc && gpt && o->uefi_validate) {
+    char efi[768];
+    snprintf(efi, sizeof efi, "%s/EFI/BOOT/bootx64.efi", mnt_esp);
+    if (access(efi, R_OK) == 0) {
+      unsigned sub = 0;
+      char verr[256] = {0};
+      if (rufux_validate_efi(efi, &sub, verr, sizeof verr) == 0) {
+        if (log) log("UEFI media validation: ESP bootloader OK (header check only).", luser);
+      } else if (log) {
+        snprintf(m, sizeof m, "UEFI media validation warning: %s", verr);
+        log(m, luser);
+      }
+    }
+  }
+  stage(prog, puser, 90);
+  char uerr[512] = {0};
+  if (gpt && rufux_unmount(esp, 0, uerr, sizeof uerr) != 0 && !rc) {
+    snprintf(err, cap, "installed but ESP unmount failed: %s", uerr);
+    rc = -1;
+  }
+  if (rufux_unmount(main, 0, uerr, sizeof uerr) != 0 && !rc) {
+    snprintf(err, cap, "installed but unmount failed: %s", uerr);
+    rc = -1;
+  }
+  if (!rc) {
+    if (gpt) {
+      RufuxBootOpts bo = {.kind = "gpt", .dry_run = 0,
+                          .allow_fixed = o->allow_fixed, .yes = 1};
+      if (rufux_install_mbr(dst, &bo, err, cap) != 0) rc = -1;
+    } else {
+      if (rufux_ntfs_pbr(main, 0, err, cap) != 0) rc = -1;
+      else {
+        RufuxBootOpts bo = {.kind = "bios", .dry_run = 0,
+                            .allow_fixed = o->allow_fixed, .yes = 1};
+        if (rufux_install_mbr(dst, &bo, err, cap) != 0) rc = -1;
+      }
+    }
+  }
+  if (!rc) stage(prog, puser, 100);
+  return rc;
 }
 
 int rufux_create(const char *src, const char *dst, const RufuxCreateOpts *o,
@@ -425,8 +607,13 @@ int rufux_create(const char *src, const char *dst, const RufuxCreateOpts *o,
     else rc = flow_extract_disk(src, dst, o, prog, puser, log, luser, err, errcap);
   } else if (!strcmp(o->mode, "format")) {
     rc = flow_format(dst, o, prog, puser, log, luser, err, errcap);
+  } else if (!strcmp(o->mode, "dos")) {
+    rc = flow_dos(dst, o, prog, puser, log, luser, err, errcap);
+  } else if (!strcmp(o->mode, "windows")) {
+    if (!src) { snprintf(err, errcap, "windows mode needs an image"); return -1; }
+    rc = flow_windows(src, dst, o, prog, puser, log, luser, err, errcap);
   } else {
-    snprintf(err, errcap, "unknown mode '%s' (dd|extract|format)", o->mode);
+    snprintf(err, errcap, "unknown mode '%s' (dd|extract|format|dos|windows)", o->mode);
     return -1;
   }
   if (rc == 0 && log) {

@@ -7,6 +7,7 @@
 #include "../linux/checksum.h"
 #include "../linux/create.h"
 #include "../linux/secureboot.h"
+#include "../linux/wininstall.h"
 #include "../linux/i18n.h"
 
 #ifdef HAVE_GTK
@@ -83,6 +84,7 @@ static GtkWidget *adv_format_box;
 static GtkWidget *check_hdd;
 static GtkWidget *check_oldbios;
 static GtkWidget *check_uefi;
+static GtkWidget *check_wue;
 static GtkWidget *check_quick;
 static GtkWidget *check_extlabel;
 static GtkWidget *check_badblocks;
@@ -169,6 +171,11 @@ static int boot_is_iso(void) {
   return strstr(b, "ISO") != NULL;
 }
 
+static int boot_is_dos(void) {
+  const char *b = drop_text(boot_drop, "");
+  return strstr(b, "FreeDOS") != NULL;
+}
+
 // Rufus behavior: scheme and target track each other both ways.
 static void on_scheme_changed(GtkDropDown *d, gpointer u) {
   (void)d; (void)u;
@@ -199,12 +206,14 @@ static void update_sensitivities(void) {
   int iso = boot_is_iso();
   const char *img = drop_text(image_drop, "");
   int iso_mode = iso && !strncmp(img, "Write in ISO", 12);
+  int win_mode = iso && !strncmp(img, "Windows", 7);
   gtk_widget_set_sensitive(select_btn, iso);
   gtk_widget_set_sensitive(hash_btn, iso && has_iso);
   gtk_widget_set_sensitive(image_drop, iso);
   // Persistence only exists for ISO-image (file) installs, like casper-rw.
   gtk_widget_set_sensitive(persist_spin, iso_mode);
   gtk_widget_set_sensitive(persist_label, iso_mode);
+  gtk_widget_set_sensitive(check_wue, win_mode);
 }
 
 static void on_boot_changed(GtkDropDown *d, gpointer u) {
@@ -266,11 +275,22 @@ static void select_finished(GObject *src, GAsyncResult *res, gpointer win) {
         char lab[64];
         sanitize_label(sel_info.label[0] ? sel_info.label : "RUFUX", "vfat", lab, sizeof lab);
         gtk_editable_set_text(GTK_EDITABLE(label_entry), lab);
-        // Default image mode: DD for bootable hybrids, ISO otherwise
-        if (sel_info.bootable)
-          gtk_drop_down_set_selected(GTK_DROP_DOWN(image_drop), 0);
-        else
-          gtk_drop_down_set_selected(GTK_DROP_DOWN(image_drop), 1);
+        // Default image mode: Windows installation for Windows media,
+        // DD for bootable hybrids, ISO otherwise
+        {
+          char werr[256] = {0};
+          int is_win = rufux_is_windows_iso(p, werr, sizeof werr);
+          if (is_win > 0) {
+            gtk_drop_down_set_selected(GTK_DROP_DOWN(image_drop), 2);
+            gtk_drop_down_set_selected(GTK_DROP_DOWN(scheme_drop), 0); // GPT
+            gtk_drop_down_set_selected(GTK_DROP_DOWN(fs_drop), 1); // NTFS
+            gui_log("Windows installation media detected.");
+          } else if (sel_info.bootable) {
+            gtk_drop_down_set_selected(GTK_DROP_DOWN(image_drop), 0);
+          } else {
+            gtk_drop_down_set_selected(GTK_DROP_DOWN(image_drop), 1);
+          }
+        }
         // Rufus behavior: EFI-capable ISO -> GPT/UEFI, else MBR
         // (scheme lock propagates to the target dropdown)
         if (sel_info.has_efi)
@@ -492,8 +512,13 @@ static void on_start(GtkButton *b, gpointer win) {
   o.verify = 1;
   o.dry_run = 0;
   o.yes = 1;
-  if (!iso_mode) {
+  if (boot_is_dos()) {
+    o.mode = "dos";
+  } else if (!iso_mode) {
     o.mode = "format";
+  } else if (!strncmp(img_s, "Windows", 7)) {
+    o.mode = "windows";
+    o.wue = gtk_check_button_get_active(GTK_CHECK_BUTTON(check_wue)) ? "bypass,nro" : "none";
   } else if (!strncmp(img_s, "Write in ISO", 12)) {
     o.mode = "extract";
   } else {
@@ -791,7 +816,7 @@ static void activate(GtkApplication *app, gpointer u) {  (void)u;
   row_label(box, "Boot selection");
   {
     GtkWidget *r = hrow(box);
-    const char *opts[] = {"Disk or ISO image (Please select)", "Non bootable", "Disk or ISO image", NULL};
+    const char *opts[] = {"Disk or ISO image (Please select)", "Non bootable", "FreeDOS", "Disk or ISO image", NULL};
     boot_drop = gtk_drop_down_new_from_strings(opts);
     gtk_widget_set_hexpand(boot_drop, TRUE);
     g_signal_connect(boot_drop, "notify::selected", G_CALLBACK(on_boot_changed), NULL);
@@ -807,7 +832,7 @@ static void activate(GtkApplication *app, gpointer u) {  (void)u;
   row_label(box, "Image option");
   {
     GtkWidget *r = hrow(box);
-    const char *opts[] = {"Write in DD Image mode", "Write in ISO Image mode", NULL};
+    const char *opts[] = {"Write in DD Image mode", "Write in ISO Image mode", "Windows installation", NULL};
     image_drop = gtk_drop_down_new_from_strings(opts);
     gtk_widget_set_hexpand(image_drop, TRUE);
     g_signal_connect(image_drop, "notify::selected", G_CALLBACK(on_image_changed), NULL);
@@ -857,9 +882,13 @@ static void activate(GtkApplication *app, gpointer u) {  (void)u;
     g_signal_connect(check_hdd, "toggled", G_CALLBACK(on_hdd_toggled), NULL);
     check_oldbios = gtk_check_button_new_with_label("Add fixes for old BIOSes (extra partition, align, etc.)");
     check_uefi = gtk_check_button_new_with_label("Enable runtime UEFI media validation");
+    check_wue = gtk_check_button_new_with_label("Windows: bypass Win11 checks + local account (autounattend.xml)");
+    gtk_check_button_set_active(GTK_CHECK_BUTTON(check_wue), TRUE);
+    gtk_widget_set_tooltip_text(check_wue, "Writes autounattend.xml: TPM/SecureBoot/RAM bypasses and online-account bypass. Windows installation mode only.");
     gtk_box_append(GTK_BOX(adv_drive_box), check_hdd);
     gtk_box_append(GTK_BOX(adv_drive_box), check_oldbios);
     gtk_box_append(GTK_BOX(adv_drive_box), check_uefi);
+    gtk_box_append(GTK_BOX(adv_drive_box), check_wue);
     gtk_box_append(GTK_BOX(box), adv_drive_box);
   }
 

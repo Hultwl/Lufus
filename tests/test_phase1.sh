@@ -96,5 +96,8 @@ if "$RUFUX" write "$FAKE" "$DST" --dry-run >/dev/null 2>&1; then bad "file targe
 # 8. safety: source and target must differ
 if "$RUFUX" write "$FAKE" "$FAKE" --dry-run --allow-file >/dev/null 2>&1; then bad "src==dst should fail"; else ok "src==dst refused"; fi
 
+# 9. download-windows explains itself (no fake downloader)
+if "$RUFUX" download-windows 2>&1 | grep -q "microsoft.com"; then ok "download-windows guidance"; else bad "download-windows guidance"; fi
+
 echo "--- $pass passed, $fail failed ---"
 [ "$fail" -eq 0 ]

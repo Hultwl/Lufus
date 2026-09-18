@@ -69,6 +69,10 @@ int rufux_format(const char *dst, const RufuxMkfsOpts *o,
     a_udf[0] = "mkfs.udf"; a_udf[1] = dst; a_udf[2] = NULL; av = a_udf;
     (void)argv_udf;
   } else {
+    if (!strcmp(o->fs, "refs") || !strcmp(o->fs, "refsv1")) {
+      snprintf(err, cap, "ReFS has no Linux formatter (proprietary filesystem); use ntfs");
+      return -1;
+    }
     snprintf(err, cap, "unsupported fs '%s' (vfat|ntfs|exfat|ext4|udf)", o->fs);
     return -1;
   }

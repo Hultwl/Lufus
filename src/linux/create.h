@@ -8,10 +8,11 @@ typedef void (*RufuxCreateProgress)(unsigned long long done,
 typedef void (*RufuxCreateLog)(const char *msg, void *user);
 
 typedef struct {
-  const char *mode; // "dd" | "extract" | "format" (non bootable)
+  const char *mode; // "dd" | "extract" | "format" | "dos" | "windows"
   const char *scheme; // "gpt" | "dos"
   const char *fs; // vfat|ntfs|exfat|ext4|udf
   const char *label; // may be NULL
+  const char *wue; // windows mode: comma list bypass,nro,privacy,all (NULL = bypass)
   unsigned long persist_mb;
   int cluster_sectors; // 0 = default
   int quick_format; // 0 = zero first 16MB before real block flows

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Rufux VERSION 1.1.5 LANGUAGES C)
+project(Rufux VERSION 1.2 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -32,6 +32,8 @@ add_executable(rufux
   src/linux/persist.c
   src/linux/badblocks.c
   src/linux/vhd.c
+  src/linux/dosboot.c
+  src/linux/wininstall.c
   src/linux/create.c
   src/linux/mount.c
   src/linux/priv.c
@@ -85,6 +87,9 @@ install(TARGETS rufux DESTINATION bin)
 install(FILES doc/rufux.1 DESTINATION share/man/man1)
 install(FILES res/linux/io.github.hultwl.rufux.desktop DESTINATION share/applications)
 install(FILES res/linux/io.github.hultwl.rufux.policy DESTINATION share/polkit-1/actions)
+# Boot payloads (FreeDOS set, UEFI:NTFS image) resolved at runtime.
+install(DIRECTORY res/freedos DESTINATION share/rufux)
+install(FILES res/uefi/uefi-ntfs.img DESTINATION share/rufux)
 # App icon (upstream Rufus artwork, GPLv3, renamed to our app id)
 foreach(SZ 128 64 32)
   install(FILES res/icons/rufus-${SZ}.png

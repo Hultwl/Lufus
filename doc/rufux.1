@@ -9,7 +9,7 @@ rufux \- bootable USB creator for Linux (Rufus port)
 \fIprobe\fR \fIFILE\fR [\-\-detail]
 .br
 .B rufux
-\fIchecksum\fR \fIFILE\fR
+\fIchecksum\fR \fIFILE\fR [\-\-algo md5|sha1|sha256|sha512]
 .br
 .B rufux
 \fIwrite\fR \fISRC DST\fR [\-\-dry\-run|\-\-real] [\-\-verify] [\-\-allow\-fixed] [\-\-allow\-file] [\-\-yes]
@@ -30,7 +30,7 @@ rufux \- bootable USB creator for Linux (Rufus port)
 \fIpersist\fR \fIDIR\fR \-\-size \fIMB\fR [\-\-label \fIL\fR] [\-\-dry\-run]
 .br
 .B rufux
-\fIbadblocks\fR \fIDST\fR [\-\-allow\-file]
+\fIbadblocks\fR \fIDST\fR [\-\-allow\-file] [\-\-write\-patterns 1..4 \-\-yes]
 .br
 .B rufux
 \fImount\fR|\fIumount\fR \fIDEV\fR [\-\-dry\-run]
@@ -45,7 +45,10 @@ rufux \- bootable USB creator for Linux (Rufus port)
 \fIupdate\-check\fR
 .br
 .B rufux
-\fIcreate\fR \fISRC DST\fR \-\-mode dd|extract [\-\-scheme \fIS\fR] [\-\-fs \fIF\fR] [\-\-persist\-mb \fIN\fR] ...
+\fIcreate\fR \fISRC\fR|\fInone\fR \fIDST\fR \-\-mode dd|extract|format|dos|windows [\-\-scheme \fIS\fR] [\-\-fs \fIF\fR] [\-\-persist\-mb \fIN\fR] [\-\-wue bypass,nro,privacy,all,none] ...
+.br
+.B rufux
+\fIdownload\-windows\fR
 .br
 .B rufux
 \fI\-\-gui\fR [\-\-theme system|dark|light]
