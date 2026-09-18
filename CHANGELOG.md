@@ -1,6 +1,15 @@
 # Changelog
 
-## 1.1.4
+## 1.1.5 (compare-list batch)
+
+- Checksums x4: md5/sha1/sha256/sha512 (EVP), CLI `--algo`,
+  GUI dialog shows all four.
+- Fixed VHD images: footer verified, payload-only writes;
+  dynamic/VHDX refused with a qemu-img pointer.
+- Bad-blocks write patterns (0xAA/0x55/0xFF/0x00, rotating
+  1-4 passes) as the pre-write gate and standalone command.
+- Scope table in PORTING.md: what's ported, what's honestly
+  out of scope, and why.
 
 - Portal theme fix: unwrap variant-wrapped color-scheme replies
   (COSMIC answers on the legacy namespace); proven live.
