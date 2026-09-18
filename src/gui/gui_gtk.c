@@ -473,6 +473,72 @@ static void flush_tail(char *acc, size_t *len) {
   acc[0] = 0;
 }
 
+typedef struct {
+  GMainLoop *loop; int resp; int bypass, nro, privacy;
+  GtkWidget *c_bypass, *c_nro, *c_privacy;
+} WueCtx;
+static void wue_response(GtkDialog *d, int r, gpointer u) {
+  (void)d;
+  WueCtx *c = (WueCtx *)u;
+  c->resp = r;
+  if (r == GTK_RESPONSE_OK) {
+    c->bypass = gtk_check_button_get_active(GTK_CHECK_BUTTON(c->c_bypass));
+    c->nro = gtk_check_button_get_active(GTK_CHECK_BUTTON(c->c_nro));
+    c->privacy = gtk_check_button_get_active(GTK_CHECK_BUTTON(c->c_privacy));
+  }
+  g_main_loop_quit(c->loop);
+}
+
+// --- Windows User Experience (WUE): Rufus asks these on START for
+// Windows installation media; the answers become autounattend.xml.
+static int show_wue_dialog(GtkWindow *parent, char *out, size_t cap) {
+  GtkWidget *dlg = gtk_dialog_new_with_buttons(_("Windows User Experience"),
+      parent, GTK_DIALOG_MODAL,
+      _("Cancel"), GTK_RESPONSE_CANCEL, _("OK"), GTK_RESPONSE_OK, NULL);
+  GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dlg));
+  GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 8);
+  gtk_widget_set_margin_top(box, 12); gtk_widget_set_margin_bottom(box, 12);
+  gtk_widget_set_margin_start(box, 12); gtk_widget_set_margin_end(box, 12);
+  GtkWidget *title = gtk_label_new(_("Customize the Windows installation?"));
+  gtk_label_set_xalign(GTK_LABEL(title), 0.0f);
+  gtk_box_append(GTK_BOX(box), title);
+  GtkWidget *c_bypass = gtk_check_button_new_with_label(
+      _("Remove requirement for 4GB+ RAM, Secure Boot and TPM 2.0"));
+  GtkWidget *c_nro = gtk_check_button_new_with_label(
+      _("Remove requirement for an online Microsoft account (local account)"));
+  GtkWidget *c_privacy = gtk_check_button_new_with_label(
+      _("Disable data collection (skip privacy questions)"));
+  gtk_check_button_set_active(GTK_CHECK_BUTTON(c_bypass), TRUE);
+  gtk_check_button_set_active(GTK_CHECK_BUTTON(c_nro), TRUE);
+  gtk_box_append(GTK_BOX(box), c_bypass);
+  gtk_box_append(GTK_BOX(box), c_nro);
+  gtk_box_append(GTK_BOX(box), c_privacy);
+  GtkWidget *note = gtk_label_new(_("Unchecked everything writes no answer file."));
+  gtk_label_set_xalign(GTK_LABEL(note), 0.0f);
+  gtk_box_append(GTK_BOX(box), note);
+  gtk_box_append(GTK_BOX(content), box);
+  gtk_window_set_transient_for(GTK_WINDOW(dlg), parent);
+  gtk_window_set_modal(GTK_WINDOW(dlg), TRUE);
+  WueCtx c;
+  c.loop = g_main_loop_new(NULL, FALSE);
+  c.resp = GTK_RESPONSE_NONE;
+  c.bypass = c.nro = c.privacy = 0;
+  c.c_bypass = c_bypass; c.c_nro = c_nro; c.c_privacy = c_privacy;
+  g_signal_connect(dlg, "response", G_CALLBACK(wue_response), &c);
+  gtk_window_present(GTK_WINDOW(dlg));
+  g_main_loop_run(c.loop);
+  g_main_loop_unref(c.loop);
+  gtk_window_destroy(GTK_WINDOW(dlg));
+  if (c.resp != GTK_RESPONSE_OK) return 0;
+  char wue[64] = {0};
+  size_t off = 0;
+  if (c.bypass) off += (size_t)snprintf(wue + off, sizeof wue - off, "bypass");
+  if (c.nro) off += (size_t)snprintf(wue + off, sizeof wue - off, "%snro", off ? "," : "");
+  if (c.privacy) off += (size_t)snprintf(wue + off, sizeof wue - off, "%sprivacy", off ? "," : "");
+  snprintf(out, cap, "%s", off ? wue : "none");
+  return 1;
+}
+
 // --- START (IDC_START), Rufus MSG_003 warning included ---
 static void on_start(GtkButton *b, gpointer win) {
   (void)b;
@@ -528,7 +594,20 @@ static void on_start(GtkButton *b, gpointer win) {
     o.mode = "format";
   } else if (!strncmp(img_s, "Windows", 7)) {
     o.mode = "windows";
-    o.wue = gtk_check_button_get_active(GTK_CHECK_BUTTON(check_wue)) ? "bypass,nro" : "none";
+    if (!gtk_check_button_get_active(GTK_CHECK_BUTTON(check_wue))) {
+      o.wue = "none";
+    } else {
+      static char wue_buf[64];
+      if (!show_wue_dialog(GTK_WINDOW(win), wue_buf, sizeof wue_buf)) {
+        gui_log("Cancelled.");
+        gui_status(_("READY"));
+        return;
+      }
+      o.wue = wue_buf;
+      char wlog[128];
+      snprintf(wlog, sizeof wlog, "Windows User Experience: %s", wue_buf);
+      gui_log(wlog);
+    }
   } else if (!strncmp(img_s, "Write in ISO", 12)) {
     o.mode = "extract";
   } else {
@@ -586,6 +665,7 @@ static void on_start(GtkButton *b, gpointer win) {
   args[k++] = "--badblock-passes"; args[k++] = passes_s;
   args[k++] = o.quick_format ? "--quick" : "--full";
   if (!o.extended_label) args[k++] = "--no-autorun";
+  if (!strcmp(o.mode, "windows")) { args[k++] = "--wue"; args[k++] = (char *)o.wue; }
   if (o.uefi_validate) args[k++] = "--uefi-validate";
   if (o.verify) args[k++] = "--verify";
   if (o.allow_fixed) args[k++] = "--allow-fixed";
@@ -946,7 +1026,7 @@ static void activate(GtkApplication *app, gpointer u) {  (void)u;
     check_uefi = gtk_check_button_new_with_label("Enable runtime UEFI media validation");
     check_wue = gtk_check_button_new_with_label("Windows: bypass Win11 checks + local account (autounattend.xml)");
     gtk_check_button_set_active(GTK_CHECK_BUTTON(check_wue), TRUE);
-    gtk_widget_set_tooltip_text(check_wue, "Writes autounattend.xml: TPM/SecureBoot/RAM bypasses and online-account bypass. Windows installation mode only.");
+    gtk_widget_set_tooltip_text(check_wue, "Shows the Windows User Experience dialog on START (TPM/Secure Boot/RAM bypasses, local account). Unchecked writes no answer file.");
     gtk_box_append(GTK_BOX(adv_drive_box), check_hdd);
     gtk_box_append(GTK_BOX(adv_drive_box), check_oldbios);
     gtk_box_append(GTK_BOX(adv_drive_box), check_uefi);

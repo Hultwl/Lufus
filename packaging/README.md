@@ -42,4 +42,5 @@ sudo cmake --install build
 Runtime deps: `gtk4`, `udisks2`, `util-linux` (sfdisk), `openssl`,
 `dosfstools`, `ntfsprogs`, `exfatprogs`, `e2fsprogs`,
 `libarchive` (bsdtar), `p7zip` (7z — required for UDF/Windows
-ISOs, which bsdtar under-extracts), `syslinux`, `curl`.
+ISOs, which bsdtar under-extracts, and for unpacking the UEFI:NTFS
+ESP payload), `syslinux`, `curl`.

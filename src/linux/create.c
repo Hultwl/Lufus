@@ -519,7 +519,7 @@ static int flow_windows(const char *src, const char *dst, const RufuxCreateOpts 
                                        err, cap) != 0)
     rc = -1;
   if (!rc && gpt) {
-    // Stage UEFI:NTFS payload to a temp dir (mtools, no mount), then copy.
+    // Stage the UEFI:NTFS payload to a temp dir, then copy onto the ESP.
     char tmp[] = "/tmp/rufux-uefi-XXXXXX";
     if (!mkdtemp(tmp)) { snprintf(err, cap, "mkdtemp failed"); rc = -1; }
     else {

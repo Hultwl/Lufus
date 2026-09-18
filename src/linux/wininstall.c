@@ -10,6 +10,7 @@
 #include <ctype.h>
 #include <sys/stat.h>
 #include <errno.h>
+#include <dirent.h>
 
 int rufux_is_windows_iso(const char *iso, char *err, unsigned long cap) {
   struct stat st;
@@ -57,10 +58,15 @@ int rufux_is_windows_iso(const char *iso, char *err, unsigned long cap) {
   return 0;
 }
 
-// UEFI:NTFS boot loader, fetched from upstream (pbatard/uefi-ntfs)
-// and cached. The in-tree res/uefi/uefi-ntfs.img is only a directory
-// skeleton, so it is never used as the payload.
-#define UEFI_NTFS_URL "https://github.com/pbatard/uefi-ntfs/releases/latest/download/bootx64_signed.efi"
+// UEFI:NTFS ESP payload: the full EFI tree (EFI/Boot/* loaders plus
+// EFI/Rufus/ntfs_*.efi and exfat_*.efi drivers) from res/uefi/uefi-ntfs.img.
+// The loader alone is not enough: it looks for \EFI\Rufus\ntfs_<arch>.efi
+// beside itself and aborts with "couldn't find/load NTFS driver" when the
+// driver file is missing, so the whole tree must be staged, like Rufus.
+// The image ships in-tree (and installed under share/rufux); the upstream
+// download is only a fallback when no local copy resolves.
+#define UEFI_NTFS_IMG_URL "https://raw.githubusercontent.com/pbatard/rufus/master/res/uefi/uefi-ntfs.img"
+#define UEFI_NTFS_IMG_SIZE 1048576UL
 
 static int cache_dir(char *out, unsigned long cap) {
   const char *base = getenv("XDG_CACHE_HOME");
@@ -88,37 +94,10 @@ static int cache_dir(char *out, unsigned long cap) {
   return 0;
 }
 
-// Path of the cached loader, downloading it on first use.
-static int uefi_loader_path(char *out, unsigned long cap, char *err, unsigned long errcap) {
-  char dir[1024];
-  if (cache_dir(dir, sizeof dir) != 0) {
-    snprintf(err, errcap, "cannot create cache dir");
-    return -1;
-  }
-  snprintf(out, cap, "%s/bootx64_signed.efi", dir);
-  struct stat st;
-  if (stat(out, &st) == 0 && st.st_size > 10000) return 0; // cached
-  if (!rufux_have("curl")) {
-    snprintf(err, errcap, "need curl to fetch the UEFI:NTFS loader (offline?)");
-    return -1;
-  }
-  const char *av[] = {"curl", "-sL", "--max-time", "60", "-o", out, UEFI_NTFS_URL, NULL};
-  if (rufux_run(av, 0) != 0 || stat(out, &st) != 0 || st.st_size < 10000) {
-    snprintf(err, errcap, "download of UEFI:NTFS loader failed (offline?)");
-    return -1;
-  }
-  return 0;
-}
-
-int rufux_stage_uefi_ntfs(const char *tmpdir, char *err, unsigned long cap) {
-  char loader[1152];
-  if (uefi_loader_path(loader, sizeof loader, err, cap) != 0) return -1;
-  char efi[1152], boot[1152];
-  snprintf(efi, sizeof efi, "%s/esp/EFI/BOOT", tmpdir);
-  snprintf(boot, sizeof boot, "%s/esp/EFI/BOOT/bootx64.efi", tmpdir);
-  // mkdir -p efi
+// mkdir -p helper (shared by the staging below).
+static int mkdir_p(const char *path) {
   char tmp[1152];
-  snprintf(tmp, sizeof tmp, "%s", efi);
+  snprintf(tmp, sizeof tmp, "%s", path);
   for (char *c = tmp + 1; *c; c++) {
     if (*c == '/') {
       *c = 0;
@@ -126,33 +105,133 @@ int rufux_stage_uefi_ntfs(const char *tmpdir, char *err, unsigned long cap) {
       *c = '/';
     }
   }
-  if (mkdir(efi, 0755) != 0 && errno != EEXIST) {
-    snprintf(err, cap, "cannot mkdir '%s'", efi);
-    return -1;
+  if (mkdir(path, 0755) != 0 && errno != EEXIST) return -1;
+  return 0;
+}
+
+// Resolve the local UEFI:NTFS image, mirroring the FreeDOS payload lookup
+// (RUFUX_RES override, build tree, installed shares, exe-relative).
+static const char *uefi_img_local(void) {
+  static char path[1152];
+  const char *env = getenv("RUFUX_RES");
+  if (env && env[0]) {
+    snprintf(path, sizeof path, "%s/uefi/uefi-ntfs.img", env);
+    struct stat st;
+    if (stat(path, &st) == 0 && st.st_size > 100000) return path;
   }
-  // copy loader -> bootx64.efi
-  FILE *in = fopen(loader, "rb");
-  FILE *f = fopen(boot, "wb");
-  if (!in || !f) {
-    if (in) fclose(in);
-    if (f) fclose(f);
-    snprintf(err, cap, "cannot stage bootloader");
-    return -1;
-  }
-  char buf[1 << 16];
-  size_t n;
-  unsigned long long total = 0;
-  while ((n = fread(buf, 1, sizeof buf, in)) > 0) {
-    if (fwrite(buf, 1, n, f) != n) {
-      fclose(in); fclose(f);
-      snprintf(err, cap, "write failed staging bootloader");
-      return -1;
+  static char exedir[1024] = {0};
+  if (!exedir[0]) {
+    ssize_t n = readlink("/proc/self/exe", exedir, sizeof exedir - 1);
+    if (n > 0) {
+      exedir[n] = 0;
+      char *slash = strrchr(exedir, '/');
+      if (slash) *slash = 0;
     }
-    total += n;
   }
-  fclose(in);
-  if (fclose(f) != 0 || total < 10000) {
-    snprintf(err, cap, "staged bootloader too small");
+  static const char *cands[] = {
+    "res/uefi/uefi-ntfs.img", // build tree
+    "/usr/share/rufux/uefi-ntfs.img",
+    "/usr/local/share/rufux/uefi-ntfs.img",
+    NULL,
+  };
+  char probe[1152];
+  struct stat st;
+  if (exedir[0]) {
+    snprintf(probe, sizeof probe, "%s/../share/rufux/uefi-ntfs.img", exedir);
+    if (stat(probe, &st) == 0 && st.st_size > 100000) {
+      snprintf(path, sizeof path, "%s", probe);
+      return path;
+    }
+  }
+  for (int i = 0; cands[i]; i++) {
+    if (stat(cands[i], &st) == 0 && st.st_size > 100000) {
+      snprintf(path, sizeof path, "%s", cands[i]);
+      return path;
+    }
+  }
+  return NULL;
+}
+
+// Path of the UEFI:NTFS image: local copy first, upstream download cached
+// as a fallback when nothing resolves (offline then fails loudly).
+static int uefi_img_path(char *out, unsigned long cap, char *err, unsigned long errcap) {
+  const char *local = uefi_img_local();
+  if (local) { snprintf(out, cap, "%s", local); return 0; }
+  char dir[1024];
+  if (cache_dir(dir, sizeof dir) != 0) {
+    snprintf(err, errcap, "cannot create cache dir");
+    return -1;
+  }
+  snprintf(out, cap, "%s/uefi-ntfs.img", dir);
+  struct stat st;
+  if (stat(out, &st) == 0 && (unsigned long)st.st_size >= UEFI_NTFS_IMG_SIZE) return 0; // cached
+  if (!rufux_have("curl")) {
+    snprintf(err, errcap, "UEFI:NTFS image not found locally and no curl to fetch it (offline?)");
+    return -1;
+  }
+  const char *av[] = {"curl", "-sL", "--max-time", "60", "-o", out, UEFI_NTFS_IMG_URL, NULL};
+  if (rufux_run(av, 0) != 0 || stat(out, &st) != 0 ||
+      (unsigned long)st.st_size < UEFI_NTFS_IMG_SIZE) {
+    snprintf(err, errcap, "download of UEFI:NTFS image failed (offline?)");
+    return -1;
+  }
+  return 0;
+}
+
+int rufux_stage_uefi_ntfs(const char *tmpdir, char *err, unsigned long cap) {
+  char img[1152];
+  if (uefi_img_path(img, sizeof img, err, cap) != 0) return -1;
+  if (!rufux_have("7z")) {
+    snprintf(err, cap, "need 7z to unpack the UEFI:NTFS image");
+    return -1;
+  }
+  char esp[1152], bootd[1152], rufusd[1152], xtr[1152];
+  snprintf(esp, sizeof esp, "%s/esp", tmpdir);
+  snprintf(bootd, sizeof bootd, "%s/esp/EFI/BOOT", tmpdir);
+  snprintf(rufusd, sizeof rufusd, "%s/esp/EFI/Rufus", tmpdir);
+  snprintf(xtr, sizeof xtr, "%s/.uefintfs", tmpdir);
+  if (mkdir_p(bootd) != 0 || mkdir_p(rufusd) != 0) {
+    snprintf(err, cap, "cannot mkdir ESP staging dirs");
+    return -1;
+  }
+  if (mkdir_p(xtr) != 0) { snprintf(err, cap, "cannot mkdir extract dir"); return -1; }
+  // The image is a raw FAT filesystem; 7z reads it, bsdtar does not.
+  char out[1250];
+  snprintf(out, sizeof out, "-o%s", xtr);
+  const char *av[] = {"7z", "x", "-y", img, out, NULL};
+  if (rufux_run(av, 0) != 0) {
+    snprintf(err, cap, "cannot extract UEFI:NTFS image");
+    return -1;
+  }
+  // Copy the EFI tree, normalizing the loader dir to the BOOT casing the
+  // rest of the code validates (FAT itself is case-insensitive).
+  char s1[1250], t1[1250], s2[1250], t2[1250];
+  snprintf(s1, sizeof s1, "%s/EFI/Boot/.", xtr);
+  snprintf(t1, sizeof t1, "%s", bootd);
+  snprintf(s2, sizeof s2, "%s/EFI/Rufus/.", xtr);
+  snprintf(t2, sizeof t2, "%s", rufusd);
+  const char *cp1[] = {"cp", "-a", s1, t1, NULL};
+  const char *cp2[] = {"cp", "-a", s2, t2, NULL};
+  if (rufux_run(cp1, 0) != 0 || rufux_run(cp2, 0) != 0) {
+    snprintf(err, cap, "cannot stage UEFI:NTFS tree");
+    return -1;
+  }
+  char rm[1250];
+  snprintf(rm, sizeof rm, "%s", xtr);
+  const char *rmv[] = {"rm", "-rf", rm, NULL};
+  rufux_run(rmv, 0); // best effort cleanup
+  // Both halves must have landed: the loader the firmware runs and the
+  // NTFS driver it refuses to boot without.
+  char boot[1152], drv[1152];
+  snprintf(boot, sizeof boot, "%s/esp/EFI/BOOT/bootx64.efi", tmpdir);
+  snprintf(drv, sizeof drv, "%s/esp/EFI/Rufus/ntfs_x64.efi", tmpdir);
+  struct stat bst, dst;
+  if (stat(boot, &bst) != 0 || bst.st_size < 10000) {
+    snprintf(err, cap, "staged bootloader missing or too small");
+    return -1;
+  }
+  if (stat(drv, &dst) != 0 || dst.st_size < 10000) {
+    snprintf(err, cap, "staged NTFS driver missing (EFI/Rufus/ntfs_x64.efi)");
     return -1;
   }
   return 0;

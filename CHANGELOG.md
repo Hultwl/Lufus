@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.2.3 (UEFI:NTFS drivers + Windows User Experience dialog)
+
+- Windows USBs booted the UEFI:NTFS loader but stopped at
+  "couldn't find/load NTFS driver": only bootx64.efi was staged.
+  The loader needs its NTFS driver beside it, so the ESP now gets
+  the full EFI tree (loaders plus EFI/Rufus ntfs/exfat drivers)
+  unpacked from the in-tree uefi-ntfs.img — no download needed,
+  works offline.
+- Windows installation mode now asks first: a Windows User
+  Experience dialog on START (remove RAM/Secure Boot/TPM checks,
+  online-account requirement, data collection), and the choice is
+  actually passed to the worker (previously the GUI selection was
+  dropped).
+
 ## 1.2.2 (UDF extraction fix + GUI cleanup)
 
 - Windows (UDF) ISOs extracted only the first file while reporting

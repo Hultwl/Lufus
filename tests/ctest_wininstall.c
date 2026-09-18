@@ -35,9 +35,11 @@ int main(int argc, char **argv) {
     // Offline CI/sandbox: fetch impossible, skip instead of failing.
     printf("ok stage (skipped: %s)\n", err);
   } else {
-    char efi[1152];
+    char efi[1152], drv[1152];
     snprintf(efi, sizeof efi, "%s/esp/EFI/BOOT/bootx64.efi", stage);
     if (!has(efi)) { printf("FAIL bootx64.efi missing\n"); return 1; }
+    snprintf(drv, sizeof drv, "%s/esp/EFI/Rufus/ntfs_x64.efi", stage);
+    if (!has(drv)) { printf("FAIL ntfs_x64.efi missing (ESP would not boot)\n"); return 1; }
     printf("ok stage\n");
   }
 

@@ -6,8 +6,9 @@
 // bits with no Linux-native path.
 // 1 if the ISO looks like Windows install media (sources/install.wim|esd).
 int rufux_is_windows_iso(const char *iso, char *err, unsigned long cap);
-// Stage the UEFI:NTFS ESP payload (res/uefi/uefi-ntfs.img) into tmpdir
-// via mtools (no mount needed). Asserts bootx64.efi lands.
+// Stage the UEFI:NTFS ESP payload (the full EFI tree: loaders plus the
+// EFI/Rufus NTFS/exFAT drivers the loader refuses to boot without) into
+// tmpdir/esp. Asserts bootx64.efi and ntfs_x64.efi land.
 int rufux_stage_uefi_ntfs(const char *tmpdir, char *err, unsigned long cap);
 // Write autounattend.xml: LabConfig HW bypasses + optional NRO bypass +
 // privacy screens off. `wue` is a comma list: bypass,nro,privacy (any
