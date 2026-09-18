@@ -126,13 +126,6 @@ static GtkWidget *section(const char *title, GtkWidget *box) {
   return l;
 }
 
-static GtkWidget *row_label(GtkWidget *box, const char *text) {
-  GtkWidget *l = gtk_label_new(_(text));
-  gtk_label_set_xalign(GTK_LABEL(l), 0.0f);
-  gtk_box_append(GTK_BOX(box), l);
-  return l;
-}
-
 static const char *drop_text(GtkWidget *drop, const char *fallback) {
   GListModel *m = gtk_drop_down_get_model(GTK_DROP_DOWN(drop));
   guint s = gtk_drop_down_get_selected(GTK_DROP_DOWN(drop));
@@ -166,14 +159,30 @@ static void on_refresh(GtkButton *btn, gpointer u) {
 }
 
 // --- boot selection (IDC_BOOT_SELECTION): Non bootable | Disk or ISO image ---
+// Match on position, not text: the "see" placeholder contains "ISO" too.
 static int boot_is_iso(void) {
-  const char *b = drop_text(boot_drop, "");
-  return strstr(b, "ISO") != NULL;
+  guint s = gtk_drop_down_get_selected(GTK_DROP_DOWN(boot_drop));
+  return s == 0 || s == 3;
 }
 
 static int boot_is_dos(void) {
-  const char *b = drop_text(boot_drop, "");
-  return strstr(b, "FreeDOS") != NULL;
+  return gtk_drop_down_get_selected(GTK_DROP_DOWN(boot_drop)) == 2;
+}
+
+// Rufus shows the picked image's name in the boot-selection combo; the
+// 4th entry exists so the placeholder can be swapped for that name.
+static void set_boot_image(const char *path) {
+  GtkStringList *sl = gtk_string_list_new(NULL);
+  gtk_string_list_append(sl, _("Disk or ISO image (Please select)"));
+  gtk_string_list_append(sl, _("Non bootable"));
+  gtk_string_list_append(sl, _("FreeDOS"));
+  char base[256];
+  const char *b = path ? strrchr(path, '/') : NULL;
+  snprintf(base, sizeof base, "%s", (path && path[0]) ? (b ? b + 1 : path)
+                                                     : _("Disk or ISO image"));
+  gtk_string_list_append(sl, base);
+  gtk_drop_down_set_model(GTK_DROP_DOWN(boot_drop), G_LIST_MODEL(sl));
+  gtk_drop_down_set_selected(GTK_DROP_DOWN(boot_drop), 3);
 }
 
 // Rufus behavior: scheme and target track each other both ways.
@@ -263,6 +272,7 @@ static void select_finished(GObject *src, GAsyncResult *res, gpointer win) {
   char *p = g_file_get_path(gf);
   if (p) {
       snprintf(sel_iso, sizeof sel_iso, "%s", p);
+      set_boot_image(p);
       char msg[1408];
       if (rufux_probe_iso_detail(p, &sel_info) == 0) {
         has_iso = 1;
@@ -524,7 +534,6 @@ static void on_start(GtkButton *b, gpointer win) {
   } else {
     o.mode = "dd";
   }
-  const char *src = iso_mode ? sel_iso : NULL;
 
   // MSG_003: the Rufus point-of-no-return warning
   char warn[1152];
@@ -712,6 +721,61 @@ static GtkWidget *hrow(GtkWidget *box) {
   return r;
 }
 
+static GtkWidget *hbox_new(void) {
+  return gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 8);
+}
+
+// One form line: label right-aligned in a fixed left column, control
+// filling the rest. This is the Rufus dialog shape (labels beside their
+// controls) — the previous build stacked every label on its own row.
+static void form_row(GtkWidget *box, const char *text, GtkWidget *control) {
+  GtkWidget *r = hrow(box);
+  GtkWidget *l = gtk_label_new(_(text));
+  gtk_label_set_xalign(GTK_LABEL(l), 1.0f);
+  gtk_widget_set_valign(l, GTK_ALIGN_CENTER);
+  gtk_widget_set_size_request(l, 140, -1);
+  gtk_box_append(GTK_BOX(r), l);
+  gtk_widget_set_hexpand(control, TRUE);
+  gtk_box_append(GTK_BOX(r), control);
+}
+
+// Two label+control pairs side by side, indented to the control column
+// (Partition scheme / Target system, File system / Cluster size).
+static void form_pair(GtkWidget *box, const char *l1, GtkWidget *c1,
+                      const char *l2, GtkWidget *c2) {
+  GtkWidget *r = hrow(box);
+  GtkWidget *sp = gtk_label_new(NULL);
+  gtk_widget_set_size_request(sp, 140, -1);
+  gtk_box_append(GTK_BOX(r), sp);
+  GtkWidget *g = gtk_grid_new();
+  gtk_grid_set_column_spacing(GTK_GRID(g), 10);
+  gtk_grid_set_row_spacing(GTK_GRID(g), 2);
+  gtk_grid_set_column_homogeneous(GTK_GRID(g), TRUE);
+  GtkWidget *a = gtk_label_new(_(l1));
+  GtkWidget *b = gtk_label_new(_(l2));
+  gtk_label_set_xalign(GTK_LABEL(a), 0.0f);
+  gtk_label_set_xalign(GTK_LABEL(b), 0.0f);
+  gtk_widget_set_hexpand(c1, TRUE);
+  gtk_widget_set_hexpand(c2, TRUE);
+  gtk_grid_attach(GTK_GRID(g), a, 0, 0, 1, 1);
+  gtk_grid_attach(GTK_GRID(g), b, 1, 0, 1, 1);
+  gtk_grid_attach(GTK_GRID(g), c1, 0, 1, 1, 1);
+  gtk_grid_attach(GTK_GRID(g), c2, 1, 1, 1, 1);
+  gtk_widget_set_hexpand(g, TRUE);
+  gtk_box_append(GTK_BOX(r), g);
+}
+
+// Full-width widget indented to the control column (advanced checkbox
+// groups, so they line up with the fields above them).
+static void form_wide(GtkWidget *box, GtkWidget *w) {
+  GtkWidget *r = hrow(box);
+  GtkWidget *sp = gtk_label_new(NULL);
+  gtk_widget_set_size_request(sp, 140, -1);
+  gtk_box_append(GTK_BOX(r), sp);
+  gtk_widget_set_hexpand(w, TRUE);
+  gtk_box_append(GTK_BOX(r), w);
+}
+
 // Follow the desktop theme: ask the xdg Settings portal for the system
 // color-scheme (1 = dark). Falls back to the GTK settings.ini, then to
 // dark on dark-first desktops (COSMIC) that expose neither.
@@ -786,7 +850,7 @@ static void apply_system_theme(void) {
 static void activate(GtkApplication *app, gpointer u) {  (void)u;
   toplevel = gtk_application_window_new(app);
   gtk_window_set_title(GTK_WINDOW(toplevel), _("Rufux — USB Creator (Linux)"));
-  gtk_window_set_default_size(GTK_WINDOW(toplevel), 520, 720);
+  gtk_window_set_default_size(GTK_WINDOW(toplevel), 560, 780);
   // The GUI always runs as the invoking user now (privilege lives in the
   // pkexec'd worker), so the desktop theme/settings apply naturally.
   // --theme remains as an explicit override.
@@ -799,23 +863,28 @@ static void activate(GtkApplication *app, gpointer u) {  (void)u;
   GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
   gtk_widget_set_margin_top(box, 10); gtk_widget_set_margin_bottom(box, 10);
   gtk_widget_set_margin_start(box, 10); gtk_widget_set_margin_end(box, 10);
-  gtk_window_set_child(GTK_WINDOW(toplevel), box);
+  // The form is taller than a small laptop screen: scroll rather than
+  // clip START/CLOSE off the bottom.
+  GtkWidget *form_scroll = gtk_scrolled_window_new();
+  gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(form_scroll),
+                                 GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+  gtk_scrolled_window_set_child(GTK_SCROLLED_WINDOW(form_scroll), box);
+  gtk_window_set_child(GTK_WINDOW(toplevel), form_scroll);
 
   // ---- Drive Properties ----
   section("Drive Properties", box);
-  row_label(box, "Device");
   {
-    GtkWidget *r = hrow(box);
+    GtkWidget *devctl = hbox_new();
     dev_drop = gtk_drop_down_new(NULL, NULL);
     gtk_widget_set_hexpand(dev_drop, TRUE);
     GtkWidget *ref = gtk_button_new_with_label(_("Refresh"));
     g_signal_connect(ref, "clicked", G_CALLBACK(on_refresh), NULL);
-    gtk_box_append(GTK_BOX(r), dev_drop);
-    gtk_box_append(GTK_BOX(r), ref);
+    gtk_box_append(GTK_BOX(devctl), dev_drop);
+    gtk_box_append(GTK_BOX(devctl), ref);
+    form_row(box, "Device", devctl);
   }
-  row_label(box, "Boot selection");
   {
-    GtkWidget *r = hrow(box);
+    GtkWidget *bootctl = hbox_new();
     const char *opts[] = {"Disk or ISO image (Please select)", "Non bootable", "FreeDOS", "Disk or ISO image", NULL};
     boot_drop = gtk_drop_down_new_from_strings(opts);
     gtk_widget_set_hexpand(boot_drop, TRUE);
@@ -824,20 +893,25 @@ static void activate(GtkApplication *app, gpointer u) {  (void)u;
     g_signal_connect(select_btn, "clicked", G_CALLBACK(on_select), toplevel);
     hash_btn = gtk_button_new_with_label("#");
     gtk_widget_set_sensitive(hash_btn, FALSE);
+    gtk_widget_set_tooltip_text(hash_btn, _("MD5 / SHA-1 / SHA-256 / SHA-512"));
     g_signal_connect(hash_btn, "clicked", G_CALLBACK(on_hash), toplevel);
-    gtk_box_append(GTK_BOX(r), boot_drop);
-    gtk_box_append(GTK_BOX(r), select_btn);
-    gtk_box_append(GTK_BOX(r), hash_btn);
+    gtk_box_append(GTK_BOX(bootctl), boot_drop);
+    gtk_box_append(GTK_BOX(bootctl), select_btn);
+    gtk_box_append(GTK_BOX(bootctl), hash_btn);
+    form_row(box, "Boot selection", bootctl);
   }
-  row_label(box, "Image option");
   {
-    GtkWidget *r = hrow(box);
     const char *opts[] = {"Write in DD Image mode", "Write in ISO Image mode", "Windows installation", NULL};
     image_drop = gtk_drop_down_new_from_strings(opts);
-    gtk_widget_set_hexpand(image_drop, TRUE);
     g_signal_connect(image_drop, "notify::selected", G_CALLBACK(on_image_changed), NULL);
-    gtk_box_append(GTK_BOX(r), image_drop);
-    persist_label = gtk_label_new("Persistence (MB, 0 = off):");
+    form_row(box, "Image option", image_drop);
+  }
+  {
+    GtkWidget *r = hrow(box);
+    persist_label = gtk_label_new(_("Persistence (MB)"));
+    gtk_label_set_xalign(GTK_LABEL(persist_label), 1.0f);
+    gtk_widget_set_valign(persist_label, GTK_ALIGN_CENTER);
+    gtk_widget_set_size_request(persist_label, 140, -1);
     gtk_widget_set_tooltip_text(persist_label,
         "Extra ext4 casper-rw partition for Ubuntu-like live USBs.\n"
         "Only used in ISO Image mode. 0 means no persistence.");
@@ -845,37 +919,25 @@ static void activate(GtkApplication *app, gpointer u) {  (void)u;
     gtk_widget_set_tooltip_text(persist_spin,
         "Extra ext4 casper-rw partition for Ubuntu-like live USBs.\n"
         "Only used in ISO Image mode. 0 means no persistence.");
+    GtkWidget *pb = hbox_new();
+    gtk_widget_set_hexpand(pb, TRUE);
+    gtk_box_append(GTK_BOX(pb), persist_spin);
     gtk_box_append(GTK_BOX(r), persist_label);
-    gtk_box_append(GTK_BOX(r), persist_spin);
+    gtk_box_append(GTK_BOX(r), pb);
   }
   {
-    GtkWidget *r = hrow(box);
-    GtkWidget *bl = gtk_label_new("Partition scheme");
-    gtk_widget_set_hexpand(bl, TRUE);
-    gtk_label_set_xalign(GTK_LABEL(bl), 0.0f);
-    GtkWidget *tl = gtk_label_new("Target system");
-    gtk_widget_set_hexpand(tl, TRUE);
-    gtk_label_set_xalign(GTK_LABEL(tl), 0.0f);
-    gtk_box_append(GTK_BOX(r), bl);
-    gtk_box_append(GTK_BOX(r), tl);
-  }
-  {
-    GtkWidget *r = hrow(box);
     const char *ps[] = {"GPT", "MBR", NULL};
     scheme_drop = gtk_drop_down_new_from_strings(ps);
-    gtk_widget_set_hexpand(scheme_drop, TRUE);
     g_signal_connect(scheme_drop, "notify::selected", G_CALLBACK(on_scheme_changed), NULL);
     const char *ts[] = {"BIOS or UEFI", "BIOS (or UEFI-CSM)", "UEFI (non CSM)", NULL};
     target_drop = gtk_drop_down_new_from_strings(ts);
-    gtk_widget_set_hexpand(target_drop, TRUE);
     g_signal_connect(target_drop, "notify::selected", G_CALLBACK(on_target_changed), NULL);
-    gtk_box_append(GTK_BOX(r), scheme_drop);
-    gtk_box_append(GTK_BOX(r), target_drop);
+    form_pair(box, "Partition scheme", scheme_drop, "Target system", target_drop);
   }
   {
     GtkWidget *adv = gtk_check_button_new_with_label("Show advanced drive properties");
     g_signal_connect(adv, "toggled", G_CALLBACK(on_adv_drive), NULL);
-    gtk_box_append(GTK_BOX(box), adv);
+    form_wide(box, adv);
     adv_drive_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
     gtk_widget_set_visible(adv_drive_box, FALSE);
     check_hdd = gtk_check_button_new_with_label("List USB Hard Drives");
@@ -889,44 +951,28 @@ static void activate(GtkApplication *app, gpointer u) {  (void)u;
     gtk_box_append(GTK_BOX(adv_drive_box), check_oldbios);
     gtk_box_append(GTK_BOX(adv_drive_box), check_uefi);
     gtk_box_append(GTK_BOX(adv_drive_box), check_wue);
-    gtk_box_append(GTK_BOX(box), adv_drive_box);
+    form_wide(box, adv_drive_box);
   }
 
   // ---- Format Options ----
   section("Format Options", box);
-  row_label(box, "Volume label");
   label_entry = gtk_entry_new();
   gtk_editable_set_text(GTK_EDITABLE(label_entry), "RUFUX");
   gtk_entry_set_max_length(GTK_ENTRY(label_entry), 32);
-  gtk_box_append(GTK_BOX(box), label_entry);
+  form_row(box, "Volume label", label_entry);
   {
-    GtkWidget *r = hrow(box);
-    GtkWidget *fl = gtk_label_new("File system");
-    gtk_widget_set_hexpand(fl, TRUE);
-    gtk_label_set_xalign(GTK_LABEL(fl), 0.0f);
-    GtkWidget *cl = gtk_label_new("Cluster size");
-    gtk_widget_set_hexpand(cl, TRUE);
-    gtk_label_set_xalign(GTK_LABEL(cl), 0.0f);
-    gtk_box_append(GTK_BOX(r), fl);
-    gtk_box_append(GTK_BOX(r), cl);
-  }
-  {
-    GtkWidget *r = hrow(box);
     const char *fss[] = {"FAT32", "NTFS", "exFAT", "UDF", "ext4", NULL};
     fs_drop = gtk_drop_down_new_from_strings(fss);
-    gtk_widget_set_hexpand(fs_drop, TRUE);
     const char *cs[] = {"Default", "512 bytes", "1024 bytes", "2048 bytes",
                         "4096 bytes", "8192 bytes", "16 kilobytes",
                         "32 kilobytes", "64 kilobytes", NULL};
     cluster_drop = gtk_drop_down_new_from_strings(cs);
-    gtk_widget_set_hexpand(cluster_drop, TRUE);
-    gtk_box_append(GTK_BOX(r), fs_drop);
-    gtk_box_append(GTK_BOX(r), cluster_drop);
+    form_pair(box, "File system", fs_drop, "Cluster size", cluster_drop);
   }
   {
     GtkWidget *adv = gtk_check_button_new_with_label("Show advanced format options");
     g_signal_connect(adv, "toggled", G_CALLBACK(on_adv_format), NULL);
-    gtk_box_append(GTK_BOX(box), adv);
+    form_wide(box, adv);
     adv_format_box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 2);
     gtk_widget_set_visible(adv_format_box, FALSE);
     check_quick = gtk_check_button_new_with_label("Quick format");
@@ -941,7 +987,7 @@ static void activate(GtkApplication *app, gpointer u) {  (void)u;
     gtk_box_append(GTK_BOX(r), passes_drop);
     gtk_box_append(GTK_BOX(adv_format_box), check_quick);
     gtk_box_append(GTK_BOX(adv_format_box), check_extlabel);
-    gtk_box_append(GTK_BOX(box), adv_format_box);
+    form_wide(box, adv_format_box);
   }
 
   // ---- Status ----
@@ -970,6 +1016,7 @@ static void activate(GtkApplication *app, gpointer u) {  (void)u;
     GtkWidget *start = gtk_button_new_with_label("START");
     start_btn = start;
     gtk_widget_set_hexpand(start, TRUE);
+    gtk_widget_add_css_class(start, "suggested-action");
     g_signal_connect(start, "clicked", G_CALLBACK(on_start), toplevel);
     GtkWidget *close = gtk_button_new_with_label("CLOSE");
     close_btn = close;
