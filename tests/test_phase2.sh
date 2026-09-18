@@ -169,7 +169,7 @@ fi
 
 # 13. UEFI:NTFS staging + autounattend (unit test, rootless via RUFUX_RES)
 if command -v gcc >/dev/null 2>&1; then
-  gcc -o "$TMP/twin" "$SRC_DIR/tests/ctest_wininstall.c" "$SRC_DIR/src/linux/wininstall.c" "$SRC_DIR/src/linux/exec.c" -I "$SRC_DIR/src" 2>"$TMP/twin.log" \
+  gcc -o "$TMP/twin" "$SRC_DIR/tests/ctest_wininstall.c" "$SRC_DIR/src/linux/wininstall.c" "$SRC_DIR/src/linux/iso_probe.c" "$SRC_DIR/src/linux/exec.c" -I "$SRC_DIR/src" 2>"$TMP/twin.log" \
     && RUFUX_RES="$SRC_DIR/res" "$TMP/twin" "$TMP/wt" | tee "$TMP/twin.out" | grep -q "RESULT OK" \
     && ok "uefi stage + unattend" || { bad "uefi stage + unattend"; tail -5 "$TMP/twin.log" "$TMP/twin.out" 2>/dev/null; }
 else
