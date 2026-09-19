@@ -1,5 +1,21 @@
 # Changelog
 
+## Unreleased (qt-gui branch)
+
+- New Qt6 interface laid out like Rufus: Drive Properties, Format
+  Options and Status sections, a green progress bar, START/CLOSE, a log
+  window with Save, a checksum window (MD5, SHA-1, SHA-256, SHA-512), and
+  the Windows User Experience dialog. It still runs writes in a separate
+  root process (`pkexec rufux create ... --real --yes`).
+- CMake picks Qt6 first, then GTK4, then builds CLI-only. Force one with
+  `-DRUFUX_GUI=qt|gtk|none`. The GTK code is still in the tree.
+- Package dependencies moved from gtk4 to qt6-base. The CI/AppImage
+  workflow changes (qt6-base-dev, linuxdeploy-plugin-qt) are in
+  docs/ci-qt.patch; apply with `git apply docs/ci-qt.patch`. They have
+  not been run yet.
+- `RUFUX_GUI_SNAPSHOT=out.png rufux --gui` saves a screenshot and exits
+  (`RUFUX_GUI_IMAGE=file.iso` loads an image first); handy for tests.
+
 ## 1.2.7 (Windows media layout, mount path fix)
 
 - Windows install sticks now use the layout Rufus uses: the NTFS data

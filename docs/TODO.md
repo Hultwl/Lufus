@@ -17,10 +17,18 @@
 - `install.wim` larger than 4 GiB has not been tested; the NTFS path should
   handle it.
 
-## Planned: Qt6 rewrite (not started)
+## Qt6 GUI (done on the qt-gui branch, needs a real-hardware test)
 
-Goal: replace the GTK4 GUI with Qt6 Widgets styled like Rufus, and
-restructure the core as a library plus a CLI plus the GUI.
+The Qt interface exists (`src/gui/gui_qt.cpp`) and renders correctly
+offscreen. Not yet checked: a real burn started from the window, the
+CANCEL button (it terminates pkexec; whether the root worker stops
+with it is unverified), the AppImage workflow, and translations (the
+Qt strings are English only). `screenshots/rufux-main.png` still shows
+the old GTK window and should be replaced.
+
+## Planned: core rewrite (not started)
+
+Restructure the core as a library plus a CLI plus the GUI.
 
 - Core as a C++17 library with no GUI dependency; `plan` then `run` steps
   so `--dry-run` and real runs share one code path.

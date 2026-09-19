@@ -1,5 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
-project(Rufux VERSION 1.2.7 LANGUAGES C)
+project(Rufux VERSION 1.2.7 LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -12,6 +15,13 @@ pkg_check_modules(GTK4 "gtk4>=4.10")
 pkg_check_modules(UDEV libudev)
 pkg_check_modules(BLKID blkid)
 pkg_check_modules(CRYPTO REQUIRED libcrypto)
+
+# GUI toolkit: Qt6 is preferred, GTK4 is the fallback, CLI-only otherwise.
+set(RUFUX_GUI "auto" CACHE STRING "GUI toolkit: auto, qt, gtk or none")
+set_property(CACHE RUFUX_GUI PROPERTY STRINGS auto qt gtk none)
+if(RUFUX_GUI STREQUAL "auto" OR RUFUX_GUI STREQUAL "qt")
+  find_package(Qt6 QUIET COMPONENTS Widgets Concurrent)
+endif()
 
 option(RUFUX_NLS "Native language support (gettext)" ON)
 if(RUFUX_NLS)
@@ -46,7 +56,13 @@ target_include_directories(rufux PRIVATE src/linux src)
 
 # gui_gtk.c always compiles: without HAVE_GTK it builds the CLI stub
 # (previously the CLI-only branch failed to link: undefined rufux_gui_run).
-if(GTK4_FOUND AND UDEV_FOUND AND BLKID_FOUND)
+if(Qt6_FOUND AND (RUFUX_GUI STREQUAL "auto" OR RUFUX_GUI STREQUAL "qt"))
+  message(STATUS "Qt6 found, building the Qt GUI")
+  # gui_gtk.c would define a second rufux_gui_run; the Qt file replaces it.
+  set_source_files_properties(src/gui/gui_gtk.c PROPERTIES HEADER_FILE_ONLY TRUE)
+  target_sources(rufux PRIVATE src/gui/gui_qt.cpp)
+  target_link_libraries(rufux PRIVATE Qt6::Widgets Qt6::Concurrent)
+elseif((RUFUX_GUI STREQUAL "auto" OR RUFUX_GUI STREQUAL "gtk") AND GTK4_FOUND AND UDEV_FOUND AND BLKID_FOUND)
   message(STATUS "GTK4+udev+blkid found, building full GUI")
   target_compile_definitions(rufux PRIVATE HAVE_GTK=1)
   target_include_directories(rufux PRIVATE ${GTK4_INCLUDE_DIRS} ${UDEV_INCLUDE_DIRS} ${BLKID_INCLUDE_DIRS})

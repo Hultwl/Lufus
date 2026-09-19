@@ -6,8 +6,8 @@ pkgdesc="Rufux — bootable USB creator for Linux (Rufus port, latest git)"
 arch=('x86_64')
 url="https://github.com/Hultwl/Rufux"
 license=('GPL-3.0-or-later')
-depends=('gtk4' 'hicolor-icon-theme' 'openssl' 'udisks2' 'util-linux')
-makedepends=('git' 'cmake' 'gcc' 'pkgconf' 'gettext')
+depends=('qt6-base' 'hicolor-icon-theme' 'openssl' 'udisks2' 'util-linux')
+makedepends=('git' 'cmake' 'gcc' 'pkgconf' 'gettext' 'qt6-tools')
 optdepends=(
   'dosfstools: FAT32 formatting (mkfs.vfat)'
   'ntfsprogs: NTFS formatting (mkfs.ntfs)'

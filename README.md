@@ -30,7 +30,7 @@ Rufux is a Linux port of [Rufus](https://github.com/pbatard/rufus). It
 burns ISOs to USB sticks, and unlike `dd` it can also partition, format,
 extract, verify, and build Windows install media.
 
-Most of the code was written with an AI assistant and then tested on real
+The graphical interface is built with Qt6. Most of the code was written with an AI assistant and then tested on real
 sticks. It is young software: read the limits below before trusting it
 with anything you care about, and try `--dry-run` first.
 
