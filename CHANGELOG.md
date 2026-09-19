@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.2.5 (answer file aligned with Rufus)
+
+- autounattend.xml rewritten against upstream Rufus wue.c: wcm
+  namespaces on every component, wcm:action on list items (Setup
+  ignored them without it), HW bypasses as WinPE reg commands,
+  empty product key block, BitLocker device-encryption guard.
+  Bypass/NRO/privacy theoretically apply for real now.
+
 ## 1.2.4 (hotfix: data partition type + loud GUI failures)
 
 - GPT data partition is typed Microsoft basic data now (was Linux
