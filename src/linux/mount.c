@@ -37,11 +37,15 @@ int rufux_mount(const char *dev, int dry_run, char *mnt_out, unsigned long cap,
   const char *at = strstr(out, " at ");
   if (!at) { snprintf(err, errcap, "cannot parse mount output: %.400s", out); return -1; }
   at += 4;
+  // The path runs to the end of the line. Only the sentence-ending period
+  // udisksctl appends is dropped: labels such as "Win11.ISO" or "Ubuntu 22.04"
+  // contain dots, and cutting at the first one sent the extraction to a
+  // truncated path (possibly on the internal disk).
   size_t i = 0;
-  while (at[i] && at[i] != '\n' && at[i] != '.' && i + 1 < cap) { mnt_out[i] = at[i]; i++; }
+  while (at[i] && at[i] != '\n' && i + 1 < cap) { mnt_out[i] = at[i]; i++; }
   mnt_out[i] = 0;
-  // trim trailing spaces/dots
-  while (i && (mnt_out[i-1] == ' ' || mnt_out[i-1] == '.')) mnt_out[--i] = 0;
+  while (i && (mnt_out[i-1] == ' ' || mnt_out[i-1] == '\r')) mnt_out[--i] = 0;
+  if (i && mnt_out[i-1] == '.') mnt_out[--i] = 0;
   if (!mnt_out[0]) { snprintf(err, errcap, "empty mountpoint"); return -1; }
   return 0;
 }
