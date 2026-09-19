@@ -1,54 +1,62 @@
-# How the port actually went
+# Porting notes
 
-Upstream is pbatard/rufus at `2ea79910`: ~46k lines of C, Win32 only,
-Windows 10 and up. I kept it in-tree for reference and wrote everything
-Linux-native in `src/linux/` + `src/gui/`. No `windows.h` in our code,
-ever — that was the one hard rule.
+Rufux is based on [pbatard/rufus](https://github.com/pbatard/rufus) at
+commit `2ea79910`. Rufus is about 46,000 lines of Windows-only C. The
+upstream sources are kept in the tree for reference and are not compiled.
+The Linux code lives in `src/linux/` (core) and `src/gui/` (GTK4 interface).
+Nothing we build includes `windows.h`.
 
-## What I kept
+## Reused from upstream
 
-The portable guts: ISO9660/UDF parsing (`libcdio`), the `bled`
-decompressors, `wimlib`, the checksum/parser/XML helpers, the MBR and
-boot-record byte blobs from `ms-sys` (data, not code), and all the
-payloads in `res/` — GRUB, syslinux binaries, the UEFI:NTFS image,
-FreeDOS files, icons, upstream locales.
+- The MBR and boot-record byte arrays from ms-sys (data only)
+- Payloads in `res/`: the UEFI:NTFS image, FreeDOS files, syslinux and
+  GRUB binaries, icons, and upstream's translation files
 
-## What I rewrote (and with what)
+## Rewritten for Linux
 
-No libfdisk, no libadwaita, none of the fancy stuff from the original
-plan — plain tools called as subprocesses turned out to be enough and
-a lot easier to debug:
+Where Rufus calls a Windows API, Rufux runs a standard Linux tool or
+system call instead.
 
-| Instead of (Windows) | I used (Linux) |
+| Rufus (Windows) | Rufux (Linux) |
 |---|---|
-| SetupDi device enumeration | sysfs scan + `BLKGETSIZE64`, `/sys/block/*/size` fallback so sizes work unprivileged |
-| VDS + `fmifs!FormatEx` formatting | `mkfs.vfat/ntfs/exfat/ext4/udf` binaries |
-| `IOCTL_DISK_*_LAYOUT_EX` partitioning | `sfdisk` scripts (explicit field syntax — bare `;` lines break older versions, learned the hard way) |
-| `\\.\PhysicalDriveN` raw I/O | `open(O_DIRECT\|O_EXCL)` + `flock` + `fsync` + `BLKRRPART` |
-| Win32 dialog UI | GTK4 (plain, no libadwaita), portal-native file pickers |
-| Registry + services + `bcdboot` | dotfiles nowhere — polkit/`sudo`, udisks2 mounts, `grub-install` thinking (not yet needed) |
-| `wininet` downloads | `curl` subprocess for update checks |
-| VDS locking, `SE_*` privileges | `flock`, `geteuid` checks, pkexec-per-operation from the GUI |
+| Device enumeration (SetupDi) | sysfs scan plus `BLKGETSIZE64` |
+| Formatting (VDS, `FormatEx`) | `mkfs.vfat`, `mkfs.ntfs`, `mkfs.exfat`, `mkfs.ext4`, `mkudffs` |
+| Partitioning (`IOCTL_DISK_*`) | `sfdisk` scripts |
+| Raw disk I/O | `open()` with `O_EXCL`, `flock`, `fsync`, `BLKRRPART` |
+| Dialogs | GTK4 |
+| Privileges | root check, `pkexec` from the GUI |
+| Mounting | `udisksctl` |
+| Downloads | `curl` for update checks |
 
-Two rules that survived the whole project:
+Two rules apply everywhere: never touch a non-removable device without
+`--allow-fixed`, and every destructive command prints a plan unless
+`--real --yes` is given.
 
-- Never touch a non-removable device without explicit `--allow-fixed`.
-- Everything destructive dry-runs first; real runs need `--real --yes`.
+## Windows install media
 
-## Rufus headline features: where each one stands
+The stick has two partitions: an NTFS partition with the ISO contents,
+then a 1 MiB UEFI:NTFS partition at the very end. This mirrors Rufus. Two
+details matter for Windows Setup:
 
-| Feature | Status | The real story |
+- The data partition comes first.
+- The small partition is typed as basic data, not "EFI System". Rufus
+  documents that Setup fails when a disk has two ESPs.
+
+Only UEFI boot works for NTFS sticks. The NTFS boot sector loads more code
+from sectors 1-15 of `$Boot`, which `mkfs.ntfs` leaves empty, so BIOS
+boot needs a different approach (see [docs/TODO.md](docs/TODO.md)).
+
+## Feature status
+
+| Feature | Status | Notes |
 |---|---|---|
-| MD5 / SHA-1 / SHA-256 / SHA-512 | ✅ Done | OpenSSL EVP; `checksum --algo`, GUI `#` shows all four |
-| Fixed VHD images | ✅ Done | Footer parsed and checksum-verified, payload written, footer skipped; dynamic/VHDX refused with a `qemu-img` pointer |
-| Bad-blocks scan | ✅ Done | Read-only scan by default; `--write-patterns` does destructive 0xAA/0x55/0xFF/0x00 passes like Rufus |
-| FreeDOS bootable USB | ✅ Done (1.2) | Real DOS boot records from ms-sys blobs via a Linux-native writer, KERNEL.SYS copied first — byte-exact tested, not just copied files |
-| Windows install media | ✅ Done (1.2) | ESP + NTFS, ISO extract, UEFI:NTFS loader fetched from upstream, `autounattend.xml` with the Win11 bypasses |
-| TPM/Secure-Boot bypass | ✅ Done as WUE (1.2) | Same answer-file mechanism Rufus uses; no registry hacking on our side |
-| ReFS formatting | ❌ No | There is no Linux ReFS formatter — Microsoft never published one, the Linux driver is read-only. Refused with a message |
-| Windows ISO downloader | ❌ No | Microsoft serves ISOs through an authenticated web flow with no sanctioned API. `rufux download-windows` tells you the manual path instead of pretending |
-| Windows To Go (full OS on USB) | ⏸ Parked | Researched (`docs/wintogo-research.md`), feasible via wimlib + hivex-built BCD — but it needs a 32GB+ fast stick and multi-round boot testing I don't have lined up. See `docs/TODO.md` |
-| 38-language UI | ⚠️ Partial | Our own strings are EN + FR + ES via gettext. `res/loc/` is upstream's translation set — inherited, not mine |
-
-The pattern for the ❌ rows: I'd rather refuse with the real reason than
-ship something that looks like the feature and isn't.
+| MD5, SHA-1, SHA-256, SHA-512 | Works | OpenSSL |
+| Fixed VHD images | Works | Footer checked, payload written; dynamic VHD and VHDX are refused |
+| Bad-block scan | Works | Read-only by default; `--write-patterns` writes test patterns |
+| FreeDOS stick | Works | DOS boot records, checked byte for byte in tests |
+| Windows install media | UEFI only | See above. Not yet confirmed on real hardware after the 1.2.7 layout change |
+| Windows 11 check bypass | Works | Answer-file method, same as Rufus |
+| ReFS formatting | No | No Linux ReFS formatter exists; refused with a message |
+| Windows ISO downloader | No | Microsoft offers no public API; the command explains the manual steps |
+| Windows To Go | Not started | Researched in [docs/wintogo-research.md](docs/wintogo-research.md); needs a fast 32 GB+ stick to test |
+| Translations | Partial | Our own strings: English, French, Spanish. `res/loc/` is upstream's |

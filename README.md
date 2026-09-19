@@ -5,7 +5,7 @@
 <h1 align="center">Rufux</h1>
 
 <p align="center">
-  Rufus, for Linux. Make bootable USBs without rebooting into Windows.
+  Make bootable USB sticks on Linux, the way Rufus does on Windows.
 </p>
 
 <p align="center">
@@ -26,84 +26,95 @@
 
 ---
 
-I kept reaching for Rufus and remembering I'm on Linux. `dd` works until
-it doesn't (no verification, no partitioning, no persistence, good luck
-with Windows ISOs), and the GUI tools each miss something. So I ported
-Rufus itself — the Windows sources are in-tree for reference, and
-everything Linux-native lives in `src/linux/` + `src/gui/`.
+Rufux is a Linux port of [Rufus](https://github.com/pbatard/rufus). It
+burns ISOs to USB sticks, and unlike `dd` it can also partition, format,
+extract, verify, and build Windows install media.
 
-Built with AI assistance, reviewed and tested by a human. Real USB burns,
-real bugs found and fixed (one needed a QEMU boot to prove). See
-[PORTING.md](PORTING.md) for what's ported, what's not, and why.
+Most of the code was written with an AI assistant and then tested on real
+sticks. It is young software: read the limits below before trusting it
+with anything you care about, and try `--dry-run` first.
 
 ## What it does
 
-- **Burn two ways** — raw DD with verify, or file mode (partition, format,
-  extract, bootloader) with the drive auto-mounted for you
-- **Windows install media** — ESP + NTFS layout, UEFI:NTFS loader, and an
-  optional `autounattend.xml` that skips the Win11 hardware checks
-- **FreeDOS sticks** — real DOS boot records, not just copied files
-- **Fixed VHDs, all four checksums, persistence partitions, bad-block
-  passes, Secure Boot status** — the Rufus checklist, minus the parts
-  that genuinely can't exist on Linux (documented below)
-- **Safety first** — dry-run is the default; real writes need `--real
-  --yes` plus root, and fixed disks, mounted targets, and source == target
-  are all refused
+- **Write an image** in raw mode (`dd`-style, with read-back verification)
+  or in file mode (partition, format, extract the ISO, install a
+  bootloader).
+- **Windows install media**, laid out like Rufus does it: an NTFS
+  partition holding the ISO contents, plus a 1 MiB UEFI:NTFS partition at
+  the end so UEFI machines can boot from NTFS. Optionally adds an
+  `autounattend.xml` that skips the Windows 11 hardware checks.
+- **FreeDOS sticks** with real DOS boot records.
+- **Extras:** MD5/SHA-1/SHA-256/SHA-512 checksums, fixed VHD images,
+  persistence partitions, bad-block scans, Secure Boot status.
+- **Safety:** commands only print a plan unless you pass `--real --yes`
+  and run as root. Fixed disks, mounted targets, and a target equal to
+  the source are refused.
+
+## Limits you should know about
+
+- Windows sticks made in file mode boot on **UEFI** machines only. Legacy
+  BIOS boot from NTFS needs a Windows-written boot loader that Linux
+  formatting tools don't produce.
+- If Windows Setup says a media driver is missing, please open an issue
+  with the log. Version 1.2.7 changed the stick layout to match Rufus
+  because of that error, but it could not be tested against a real
+  Windows install.
+- Not supported: ReFS, the built-in Windows ISO downloader, Windows To Go.
+  [PORTING.md](PORTING.md) explains each.
 
 ## Install
 
-**AppImage** (easiest):
-```sh
-chmod +x Rufux-x86_64.AppImage
-./Rufux-x86_64.AppImage   # opens the GUI
-```
+**AppImage:** download it from the
+[latest release](https://github.com/Hultwl/Rufux/releases/latest), then
+`chmod +x Rufux-x86_64.AppImage` and run it.
 
-**Arch:**
-```sh
-paru -S rufux-git
-```
+**Arch:** `paru -S rufux-git`
 
 **From source:**
+
 ```sh
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
-ctest --test-dir build   # 4/4 green
+ctest --test-dir build
 sudo cmake --install build
 ```
 
-You'll need the usual formatting tools on the host (`dosfstools`,
-`ntfsprogs`, `exfatprogs`, `e2fsprogs`, `util-linux`, `syslinux`,
-`udisks2`, `libarchive`) — full list in
-[`packaging/README.md`](packaging/README.md).
+The host needs `dosfstools`, `ntfs-3g`/`ntfsprogs`, `exfatprogs`,
+`e2fsprogs`, `util-linux`, `syslinux`, `udisks2`, and `p7zip` or
+`libarchive`. See [packaging/README.md](packaging/README.md) for the full
+list per distribution. Some tests skip themselves when a tool or root
+access is missing.
 
-## Quick start
+## Usage
 
 ```sh
-rufux list                                  # what's plugged in
-rufux probe image.iso --detail              # label, size, bootable?
-rufux write image.iso /dev/sdX --dry-run    # always plan first…
+rufux list                                   # removable drives
+rufux probe image.iso --detail               # label, size, bootable?
+rufux write image.iso /dev/sdX --dry-run     # show the plan
 sudo rufux write image.iso /dev/sdX --real --verify --yes
-rufux --gui                                 # full GUI, escalates per action
+
+# Windows install media, with the Windows 11 checks disabled:
+sudo rufux create Win11.iso /dev/sdX --mode windows --scheme gpt \
+     --wue bypass --real --yes
+
+rufux --gui                                  # graphical interface
 ```
 
-## Docs
+Run `rufux` with no arguments for every option, or `man rufux` after
+installing.
 
-- [`PORTING.md`](PORTING.md) — kept vs rewritten vs honestly out of scope
-- [`PHASES.md`](PHASES.md) — how this got built, phase by phase
-- [`CHANGELOG.md`](CHANGELOG.md) — release history
-- [`tests/HW_MATRIX.md`](tests/HW_MATRIX.md) — hardware checklist
-- `man rufux` after install
+## More
 
-## Contributing
+- [PORTING.md](PORTING.md): what was kept from Rufus, what was rewritten
+- [CHANGELOG.md](CHANGELOG.md): release notes
+- [docs/TODO.md](docs/TODO.md): known problems and planned work
+- [tests/HW_MATRIX.md](tests/HW_MATRIX.md): hardware test checklist
 
-Bug reports with log output are gold (there's a Save button in the GUI).
-If you touch code, keep `tests/test_phase*.sh` green. For anything that
-writes to real hardware, check the HW matrix first.
+Bug reports with the log attached help most (the GUI has a Save button).
 
-## Origin
+## Origin and license
 
-Port of [pbatard/rufus](https://github.com/pbatard/rufus) (© Pete Batard,
-GPLv3 — upstream sources kept in-tree for reference). Renamed from Lufus
-to Rufux to avoid colliding with
-[Hogjects/Lufus](https://github.com/Hogjects/Lufus) — different project,
-much respect.
+Port of [pbatard/rufus](https://github.com/pbatard/rufus) by Pete Batard.
+GPLv3, like upstream. Formerly called Lufus; renamed to avoid confusion
+with [Hogjects/Lufus](https://github.com/Hogjects/Lufus), an unrelated
+project.
