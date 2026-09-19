@@ -6,9 +6,25 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <sys/ioctl.h>
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/wait.h>
+#include <linux/fs.h>
+
+// Size of a block device or image file in bytes (0 on failure).
+static unsigned long long target_bytes(const char *path) {
+  struct stat st;
+  if (stat(path, &st) != 0) return 0;
+  if (S_ISREG(st.st_mode)) return (unsigned long long)st.st_size;
+  int fd = open(path, O_RDONLY | O_CLOEXEC);
+  if (fd < 0) return 0;
+  unsigned long long b = 0;
+  if (ioctl(fd, BLKGETSIZE64, &b) != 0) b = 0;
+  close(fd);
+  return b;
+}
 
 void rufux_partition_plan(const char *dst, const RufuxPartOpts *o,
                           char *out, unsigned long cap) {
@@ -23,8 +39,9 @@ int rufux_partition(const char *dst, const RufuxPartOpts *o,
     return -1;
   }
   const char *scheme = !strcmp(o->scheme, "mbr") ? "dos" : o->scheme;
-  if (strcmp(o->layout, "single") && strcmp(o->layout, "esp+main")) {
-    snprintf(err, cap, "layout must be single|esp+main");
+  if (strcmp(o->layout, "single") && strcmp(o->layout, "esp+main") &&
+      strcmp(o->layout, "main+uefintfs")) {
+    snprintf(err, cap, "layout must be single|esp+main|main+uefintfs");
     return -1;
   }
   if (!o->dry_run && !o->yes) {
@@ -53,7 +70,36 @@ int rufux_partition(const char *dst, const RufuxPartOpts *o,
       mbr_type = "83";
   }
   char script[1024];
-  if (!strcmp(o->layout, "single")) {
+  if (!strcmp(o->layout, "main+uefintfs")) {
+    // Rufus layout for NTFS/exFAT install media that must also boot UEFI:
+    // the data partition FIRST, a 1 MiB UEFI:NTFS partition LAST.
+    //  - Windows Setup looks for sources\install.wim on the volumes it can
+    //    mount; the data volume has to be the first partition, which is the
+    //    only one older WinPE builds show on a removable drive.
+    //  - The UEFI:NTFS partition must NOT carry the EFI System type:
+    //    Setup refuses to copy files when the disk has two ESPs (Rufus
+    //    drive.c). It is typed basic data and flagged no-drive-letter
+    //    (GPT attribute bit 63) so Windows never assigns it a letter.
+    // Sizes are in whole MiB so the script is identical on 512e and 4Kn
+    // media. One MiB of slack at the end covers the backup GPT.
+    unsigned long long bytes = target_bytes(dst);
+    unsigned long long mib = bytes >> 20;
+    if (mib < 64) {
+      snprintf(err, cap, "target '%s' is too small for a UEFI:NTFS layout", dst);
+      return -1;
+    }
+    unsigned long long main_mib = mib - 3; // 1 leading + 1 UEFI:NTFS + 1 slack
+    if (!strcmp(scheme, "gpt"))
+      snprintf(script, sizeof script,
+               "label: gpt\n"
+               "start=1MiB, size=%lluMiB, type=EBD0A0A2-B938-11D2-B3FA-00A0C93EC93B, name=\"Windows\"\n"
+               "size=1MiB, type=EBD0A0A2-B938-11D2-B3FA-00A0C93EC93B, name=\"UEFI:NTFS\", attrs=\"GUID:63\"\n",
+               main_mib);
+    else
+      snprintf(script, sizeof script,
+               "label: dos\nstart=1MiB, size=%lluMiB, type=%s, bootable\nsize=1MiB, type=ef\n",
+               main_mib, mbr_type);
+  } else if (!strcmp(o->layout, "single")) {
     if (!strcmp(scheme, "gpt"))
       snprintf(script, sizeof script,
                "label: gpt\nstart=1MiB, type=0FC63DAF-8483-4772-8E79-3D69D8477DE4\n");

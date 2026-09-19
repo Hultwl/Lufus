@@ -1,0 +1,31 @@
+#!/bin/bash
+# Test double for udisksctl: udisksd needs a running system bus, which CI
+# containers don't have. Supports the two calls Rufux makes:
+#   udisksctl mount   -b DEV --no-user-interaction
+#   udisksctl unmount -b DEV --no-user-interaction
+set -e
+op=$1; shift
+dev=
+while [ $# -gt 0 ]; do
+  case $1 in -b) dev=$2; shift 2 ;; *) shift ;; esac
+done
+root=${RUFUX_SHIM_MNT:-/tmp/rufux-shim-mnt}
+mp=$root/$(basename "$dev")
+case $op in
+  mount)
+    mkdir -p "$mp"
+    fs=$(blkid -o value -s TYPE "$dev" 2>/dev/null || true)
+    case $fs in
+      ntfs) mount -t ntfs-3g "$dev" "$mp" ;;
+      *)    mount "$dev" "$mp" ;;
+    esac
+    echo "Mounted $dev at $mp."
+    ;;
+  unmount)
+    sync
+    umount "$dev"
+    rmdir "$mp" 2>/dev/null || true
+    echo "Unmounted $dev."
+    ;;
+  *) echo "shim: unsupported op $op" >&2; exit 2 ;;
+esac

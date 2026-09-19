@@ -189,7 +189,7 @@ fi
 truncate -s 64M "$TMP/dosplan.img"
 "$RUFUX" create none "$TMP/dosplan.img" --mode dos --dry-run --allow-file 2>&1 | grep -q "FreeDOS" \
   && ok "dos dry-run plan" || bad "dos dry-run plan"
-"$RUFUX" create "$TMP/win.iso" "$TMP/diskw.img" --mode windows --scheme gpt --dry-run --allow-file 2>&1 | grep -q "install-boot" \
+"$RUFUX" create "$TMP/win.iso" "$TMP/diskw.img" --mode windows --scheme gpt --dry-run --allow-file 2>&1 | grep -q "UEFI:NTFS last" \
   && ok "windows disk plan" || bad "windows disk plan"
 
 echo "--- $pass passed, $fail failed ---"

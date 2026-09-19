@@ -3,6 +3,22 @@
 #include "exec.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
+
+// First sector of a partition node (sysfs), 0 if unknown. mkfs.ntfs writes
+// this into the BPB "hidden sectors" field, which the NTFS boot record uses
+// to find bootmgr on BIOS machines; it cannot always work it out itself.
+static unsigned long long part_start_sector(const char *dev) {
+  const char *base = strrchr(dev, '/');
+  base = base ? base + 1 : dev;
+  char p[256], buf[64] = {0};
+  snprintf(p, sizeof p, "/sys/class/block/%s/start", base);
+  FILE *f = fopen(p, "r");
+  if (!f) return 0;
+  if (!fgets(buf, sizeof buf, f)) buf[0] = 0;
+  fclose(f);
+  return strtoull(buf, NULL, 10);
+}
 
 int rufux_format(const char *dst, const RufuxMkfsOpts *o,
                  char *err, unsigned long cap) {
@@ -25,8 +41,8 @@ int rufux_format(const char *dst, const RufuxMkfsOpts *o,
   const char **av = NULL;
 
   // Function-local argv buffers (reentrant; no shared static state).
-  char lab_vfat[160], lab_ntfs[160], lab_exfat[160], lab_ext4[160], sec_vfat[32];
-  const char *a_vfat[9], *a_ntfs[7], *a_exfat[5], *a_ext4[7], *a_udf[4];
+  char lab_vfat[160], lab_ntfs[160], start_ntfs[32], lab_exfat[160], lab_ext4[160], sec_vfat[32];
+  const char *a_vfat[9], *a_ntfs[9], *a_exfat[5], *a_ext4[7], *a_udf[4];
   if (!strcmp(o->fs, "vfat") || !strcmp(o->fs, "fat32")) {
     if (!rufux_have("mkfs.vfat")) { snprintf(err, cap, "mkfs.vfat missing"); return -1; }
     int i = 0;
@@ -41,6 +57,11 @@ int rufux_format(const char *dst, const RufuxMkfsOpts *o,
     if (!rufux_have("mkfs.ntfs")) { snprintf(err, cap, "mkfs.ntfs missing (ntfsprogs)"); return -1; }
     int i = 0;
     a_ntfs[i++] = "mkfs.ntfs"; a_ntfs[i++] = "-F"; a_ntfs[i++] = "-Q";
+    unsigned long long st = part_start_sector(dst);
+    if (st > 0) {
+      snprintf(start_ntfs, sizeof start_ntfs, "%llu", st);
+      a_ntfs[i++] = "-p"; a_ntfs[i++] = start_ntfs;
+    }
     if (o->label && o->label[0]) { snprintf(lab_ntfs, sizeof lab_ntfs, "%s", o->label); a_ntfs[i++] = "-L"; a_ntfs[i++] = lab_ntfs; }
     a_ntfs[i++] = dst; a_ntfs[i] = NULL; av = a_ntfs;
   } else if (!strcmp(o->fs, "exfat")) {

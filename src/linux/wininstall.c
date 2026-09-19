@@ -9,6 +9,9 @@
 #include <strings.h>
 #include <ctype.h>
 #include <sys/stat.h>
+#include <sys/ioctl.h>
+#include <fcntl.h>
+#include <linux/fs.h>
 #include <errno.h>
 #include <dirent.h>
 
@@ -232,6 +235,55 @@ int rufux_stage_uefi_ntfs(const char *tmpdir, char *err, unsigned long cap) {
   }
   if (stat(drv, &dst) != 0 || dst.st_size < 10000) {
     snprintf(err, cap, "staged NTFS driver missing (EFI/Rufus/ntfs_x64.efi)");
+    return -1;
+  }
+  return 0;
+}
+
+// Write the UEFI:NTFS image raw onto its own (1 MiB) partition, exactly like
+// Rufus: the image is a complete FAT filesystem holding the EFI loaders and
+// the NTFS/exFAT drivers, so no mkfs, mount or file copy is involved. The
+// result is read back and compared before we declare success.
+int rufux_write_uefi_ntfs(const char *part_dev, char *err, unsigned long cap) {
+  char img[1152];
+  if (uefi_img_path(img, sizeof img, err, cap) != 0) return -1;
+  FILE *in = fopen(img, "rb");
+  if (!in) { snprintf(err, cap, "cannot open '%s': %s", img, strerror(errno)); return -1; }
+  static unsigned char want[UEFI_NTFS_IMG_SIZE], got[UEFI_NTFS_IMG_SIZE];
+  size_t n = fread(want, 1, sizeof want, in);
+  fclose(in);
+  if (n != sizeof want) {
+    snprintf(err, cap, "UEFI:NTFS image '%s' is %zu bytes, expected %lu", img, n, UEFI_NTFS_IMG_SIZE);
+    return -1;
+  }
+  int fd = open(part_dev, O_RDWR | O_EXCL | O_CLOEXEC);
+  if (fd < 0) { snprintf(err, cap, "cannot open '%s': %s", part_dev, strerror(errno)); return -1; }
+  unsigned long long psz = 0;
+  if (ioctl(fd, BLKGETSIZE64, &psz) != 0 || psz < UEFI_NTFS_IMG_SIZE) {
+    snprintf(err, cap, "partition '%s' is smaller than the UEFI:NTFS image", part_dev);
+    close(fd);
+    return -1;
+  }
+  size_t off = 0;
+  while (off < sizeof want) {
+    ssize_t w = pwrite(fd, want + off, sizeof want - off, (off_t)off);
+    if (w < 0 && errno == EINTR) continue;
+    if (w <= 0) { snprintf(err, cap, "writing UEFI:NTFS image failed: %s", strerror(errno)); close(fd); return -1; }
+    off += (size_t)w;
+  }
+  if (fsync(fd) != 0) { snprintf(err, cap, "fsync of '%s' failed", part_dev); close(fd); return -1; }
+  // Drop cached pages so the read-back hits the device, not the page cache.
+  ioctl(fd, BLKFLSBUF, 0);
+  off = 0;
+  while (off < sizeof got) {
+    ssize_t r = pread(fd, got + off, sizeof got - off, (off_t)off);
+    if (r < 0 && errno == EINTR) continue;
+    if (r <= 0) break;
+    off += (size_t)r;
+  }
+  close(fd);
+  if (off != sizeof got || memcmp(want, got, sizeof want) != 0) {
+    snprintf(err, cap, "UEFI:NTFS image read-back mismatch on '%s'", part_dev);
     return -1;
   }
   return 0;

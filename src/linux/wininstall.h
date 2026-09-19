@@ -10,6 +10,10 @@ int rufux_is_windows_iso(const char *iso, char *err, unsigned long cap);
 // EFI/Rufus NTFS/exFAT drivers the loader refuses to boot without) into
 // tmpdir/esp. Asserts bootx64.efi and ntfs_x64.efi land.
 int rufux_stage_uefi_ntfs(const char *tmpdir, char *err, unsigned long cap);
+// Write the UEFI:NTFS image (a complete 1 MiB FAT filesystem with the EFI
+// loaders and NTFS/exFAT drivers) raw onto its own partition and verify it
+// by reading it back. No mkfs, no mount.
+int rufux_write_uefi_ntfs(const char *part_dev, char *err, unsigned long cap);
 // Write autounattend.xml: LabConfig HW bypasses + optional NRO bypass +
 // privacy screens off. `wue` is a comma list: bypass,nro,privacy (any
 // subset; NULL/empty = bypass only... pass "" for bypass-only default).

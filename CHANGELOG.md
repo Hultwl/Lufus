@@ -1,5 +1,31 @@
 # Changelog
 
+## 1.2.7 (Windows media layout, mount path fix)
+
+- Windows install sticks now use the layout Rufus uses: the NTFS data
+  partition first, then a 1 MiB UEFI:NTFS partition at the very end.
+  Before, a 512 MiB partition typed "EFI System" came first. Rufus's
+  own source notes that Windows Setup fails with two ESPs and depends on
+  how Windows mounts several partitions on a removable drive; the
+  symptom was a stick that boots and then reports "a media driver your
+  computer needs is missing". The small partition is typed basic data and
+  flagged no-drive-letter. I could not reproduce the Setup error without
+  a Windows ISO and hardware, so please report back whether this fixes it.
+- The UEFI:NTFS image is written raw to its partition and read back, as
+  Rufus does, instead of being unpacked and copied.
+- After extraction the Windows tree is checked (bootmgr, boot.wim,
+  install.wim/esd/swm); a partial copy now fails the burn.
+- Fixed: the mount path reported by udisksctl was cut at the first dot,
+  so a label like "Win11.ISO" made the extraction go to a truncated path.
+- mkfs.ntfs now gets the partition start sector explicitly.
+- The GPT Windows flow no longer needs syslinux.
+- The MBR variant of the Windows flow is UEFI-only, and says so. Booting
+  it on legacy BIOS never worked: the NTFS boot sector jumps into sectors
+  1-15 of $Boot, which mkfs.ntfs leaves empty.
+- New test: tests/test_windows_layout.sh burns a fake Windows ISO onto a
+  loop device and checks the partition table, the UEFI:NTFS image and the
+  copied tree (skipped without root or the needed tools).
+
 ## 1.2.6 (mount race + honest failure reasons)
 
 - Burns twice died seconds after formatting while the same mount

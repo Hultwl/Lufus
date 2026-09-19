@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(Rufux VERSION 1.2.6 LANGUAGES C)
+project(Rufux VERSION 1.2.7 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -102,3 +102,5 @@ add_test(NAME phase1 COMMAND bash ${CMAKE_SOURCE_DIR}/tests/test_phase1.sh $<TAR
 add_test(NAME phase2 COMMAND bash ${CMAKE_SOURCE_DIR}/tests/test_phase2.sh $<TARGET_FILE:rufux>)
 add_test(NAME phase3 COMMAND bash ${CMAKE_SOURCE_DIR}/tests/test_phase3.sh $<TARGET_FILE:rufux>)
 add_test(NAME packaging COMMAND bash ${CMAKE_SOURCE_DIR}/tests/test_packaging.sh)
+add_test(NAME windows_layout COMMAND bash ${CMAKE_SOURCE_DIR}/tests/test_windows_layout.sh $<TARGET_FILE:rufux>)
+set_tests_properties(windows_layout PROPERTIES SKIP_RETURN_CODE 77)

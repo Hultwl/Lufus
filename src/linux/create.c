@@ -417,7 +417,6 @@ static int flow_dos(const char *dst, const RufuxCreateOpts *o,
                     RufuxCreateProgress prog, void *puser,
                     RufuxCreateLog log, void *luser,
                     char *err, unsigned long cap) {
-  char m[512];
   if (log) log("Plan: DOS partition, FAT32, FreeDOS system files + boot record, DOS MBR", luser);
   if (o->dry_run) return 0;
   if (!is_block(dst)) {
@@ -462,107 +461,114 @@ static int flow_dos(const char *dst, const RufuxCreateOpts *o,
   return rc;
 }
 
-// Windows installation media: ESP (FAT32) + NTFS with the ISO extracted,
-// UEFI:NTFS boot files on the ESP, optional unattended-answer XML.
-// Layout: partition 0-5, formats 5-10, extract 10-80, ESP+unattend 80-88,
-// validate 88-90, unmount+MBR 90-100. Legacy dos scheme: single NTFS.
+// Windows installation media, laid out like Rufus does it:
+//   partition 1: NTFS, holds the extracted ISO (what Setup reads)
+//   partition 2: 1 MiB UEFI:NTFS, raw image with the EFI loader + NTFS driver
+// The data partition must come first and the small boot partition must not
+// be typed as an ESP; see partition.c for why. scheme "dos" is the same
+// layout on an MBR table (for UEFI firmwares that want MBR); it does not
+// boot on legacy BIOS, see the note logged at the end of the flow.
+// Layout: partition 0-5, UEFI:NTFS + format 5-10, extract 10-80,
+// unattend 80-88, verify 88-90, unmount 90-100.
+static int p2_of(const char *p1, char *p2, unsigned long cap) {
+  size_t L = strlen(p1);
+  if (L < 2 || p1[L - 1] != '1') return -1;
+  snprintf(p2, cap, "%s", p1);
+  p2[L - 1] = '2';
+  return 0;
+}
+
+// Setup finds its media by looking for these files; a stick that lacks any
+// of them boots fine and then dies with "a media driver is missing".
+static int verify_windows_tree(const char *root, RufuxCreateLog log, void *luser,
+                               char *err, unsigned long cap) {
+  static const char *must[] = {"bootmgr", "sources/boot.wim", NULL};
+  char p[1152], m[1280];
+  struct stat st;
+  for (int i = 0; must[i]; i++) {
+    snprintf(p, sizeof p, "%s/%s", root, must[i]);
+    if (stat(p, &st) != 0 || st.st_size == 0) {
+      snprintf(err, cap, "extraction incomplete: '%s' is missing or empty on the stick", must[i]);
+      return -1;
+    }
+  }
+  static const char *inst[] = {"sources/install.wim", "sources/install.esd", "sources/install.swm", NULL};
+  for (int i = 0; inst[i]; i++) {
+    snprintf(p, sizeof p, "%s/%s", root, inst[i]);
+    if (stat(p, &st) == 0 && st.st_size > 0) {
+      snprintf(m, sizeof m, "Verified %s (%.1f MiB) on the stick.", inst[i], st.st_size / 1048576.0);
+      if (log) log(m, luser);
+      return 0;
+    }
+  }
+  snprintf(err, cap, "extraction incomplete: sources/install.wim|esd|swm missing on the stick");
+  return -1;
+}
+
 static int flow_windows(const char *src, const char *dst, const RufuxCreateOpts *o,
                         RufuxCreateProgress prog, void *puser,
                         RufuxCreateLog log, void *luser,
                         char *err, unsigned long cap) {
-  char m[1024], p1[160];
+  char m[1024], p1[160], p2[160];
   int gpt = strcmp(o->scheme, "dos");
   rufux_part1(dst, p1, sizeof p1);
   if (o->dry_run && log) {
-    snprintf(m, sizeof m, "steps:\n  1. partition %s %s (%s)\n  2. format ESP vfat + main ntfs\n"
-             "  3. mount both, extract %s -> NTFS\n  4. UEFI:NTFS payload -> ESP\n"
-             "  5. autounattend.xml (%s)\n  6. install-boot %s",
-             dst, gpt ? "gpt/esp+main" : "dos/single", o->scheme, src,
-             o->wue ? o->wue : "bypass", dst);
+    snprintf(m, sizeof m,
+             "steps:\n  1. partition %s %s: NTFS data partition first, 1 MiB UEFI:NTFS last\n"
+             "  2. write UEFI:NTFS image to partition 2 (raw), format partition 1 as NTFS\n"
+             "  3. mount partition 1, extract %s\n"
+             "  4. autounattend.xml (%s)\n  5. verify the copied Windows tree%s",
+             dst, gpt ? "gpt" : "dos", src, o->wue ? o->wue : "none",
+             gpt ? "" : "\n  (MBR table: UEFI boot only, no legacy BIOS boot code)");
     log(m, luser);
     return 0;
   }
-  RufuxPartOpts po = {.scheme = gpt ? "gpt" : "dos", .fs_main = gpt ? NULL : "ntfs",
-                      .layout = gpt ? "esp+main" : "single",
+  if (p2_of(p1, p2, sizeof p2) != 0) {
+    snprintf(err, cap, "cannot derive the UEFI:NTFS partition from '%s'", p1);
+    return -1;
+  }
+  RufuxPartOpts po = {.scheme = gpt ? "gpt" : "dos", .fs_main = "ntfs",
+                      .layout = "main+uefintfs",
                       .dry_run = 0, .allow_fixed = o->allow_fixed, .allow_file = 0, .yes = 1};
   if (rufux_partition(dst, &po, err, cap) != 0) return -1;
   stage(prog, puser, 5);
   rescan_disk(dst);
-  if (wait_node(p1, err, cap) != 0) return -1;
-  RufuxMkfsOpts esp_o = {.fs = "vfat", .label = "ESP", .dry_run = 0,
-                         .allow_fixed = o->allow_fixed, .allow_file = 0, .yes = 1};
+  if (wait_node(p1, err, cap) != 0 || wait_node(p2, err, cap) != 0) return -1;
+  if (log) log("Writing UEFI:NTFS boot partition...", luser);
+  if (rufux_write_uefi_ntfs(p2, err, cap) != 0) return -1;
   RufuxMkfsOpts main_o = {.fs = "ntfs", .label = o->label, .cluster_sectors = o->cluster_sectors,
                           .dry_run = 0, .allow_fixed = o->allow_fixed, .allow_file = 0, .yes = 1};
-  char esp[160] = {0}, main[160] = {0};
-  if (gpt) {
-    // p1 is the ESP; the main partition follows it (p1 with trailing 1 -> 2).
-    snprintf(esp, sizeof esp, "%s", p1);
-    size_t L = strlen(p1);
-    snprintf(main, sizeof main, "%s", p1);
-    if (L > 0 && main[L - 1] == '1') main[L - 1] = '2';
-    else { snprintf(err, cap, "cannot derive main partition from '%s'", p1); return -1; }
-    if (rufux_format(esp, &esp_o, err, cap) != 0) return -1;
-    if (wait_node(main, err, cap) != 0) return -1;
-    if (rufux_format(main, &main_o, err, cap) != 0) return -1;
-  } else {
-    snprintf(main, sizeof main, "%s", p1);
-    if (rufux_format(main, &main_o, err, cap) != 0) return -1;
-  }
-  // Fresh filesystems need a beat to propagate (udev/udisks probe the new
-  // signatures asynchronously); mounting instantly can fail on stale data.
+  if (log) log("Creating file system (ntfs)...", luser);
+  if (rufux_format(p1, &main_o, err, cap) != 0) return -1;
+  // Fresh signatures settle asynchronously in udev/udisks; mounting at once
+  // can see stale data, so rescan and retry the mount once.
   rescan_disk(dst);
   stage(prog, puser, 10);
-  char mnt_main[512] = {0}, mnt_esp[512] = {0};
-  // Fresh signatures can still be settling inside udisksd when we mount
-  // seconds after mkfs: rescan + one retry before failing the burn.
-  if (rufux_mount(main, 0, mnt_main, sizeof mnt_main, err, cap) != 0) {
+  char mnt[512] = {0};
+  if (rufux_mount(p1, 0, mnt, sizeof mnt, err, cap) != 0) {
     rescan_disk(dst);
-    if (rufux_mount(main, 0, mnt_main, sizeof mnt_main, err, cap) != 0) return -1;
+    if (rufux_mount(p1, 0, mnt, sizeof mnt, err, cap) != 0) return -1;
   }
   int rc = 0;
-  if (gpt) {
-    if (rufux_mount(esp, 0, mnt_esp, sizeof mnt_esp, err, cap) != 0) {
-      rescan_disk(dst);
-      if (rufux_mount(esp, 0, mnt_esp, sizeof mnt_esp, err, cap) != 0) rc = -1;
-    }
-  }
   ProgMap em = {prog, puser, 10, 70};
-  if (!rc && rufux_extract_iso_progress(src, mnt_main, 0,
-                                       prog ? (RufuxExtractProgress)mapped : NULL, &em,
-                                       err, cap) != 0)
+  if (rufux_extract_iso_progress(src, mnt, 0,
+                                 prog ? (RufuxExtractProgress)mapped : NULL, &em,
+                                 err, cap) != 0)
     rc = -1;
-  if (!rc && gpt) {
-    // Stage the UEFI:NTFS payload to a temp dir, then copy onto the ESP.
-    char tmp[] = "/tmp/rufux-uefi-XXXXXX";
-    if (!mkdtemp(tmp)) { snprintf(err, cap, "mkdtemp failed"); rc = -1; }
-    else {
-      if (rufux_stage_uefi_ntfs(tmp, err, cap) != 0) rc = -1;
-      else {
-        char s[1152], t[1152];
-        snprintf(s, sizeof s, "%s/esp/.", tmp);
-        snprintf(t, sizeof t, "%s", mnt_esp);
-        const char *av[] = {"cp", "-a", s, t, NULL};
-        if (rufux_run(av, 0) != 0) { snprintf(err, cap, "ESP copy failed"); rc = -1; }
-      }
-      char rm[1152];
-      snprintf(rm, sizeof rm, "%s/esp", tmp);
-      rmdir(rm);
-      rmdir(tmp);
-    }
-  }
   if (!rc && o->wue && strcmp(o->wue, "none")) {
-    if (rufux_write_unattend(mnt_main, o->wue, err, cap) != 0) rc = -1;
+    if (rufux_write_unattend(mnt, o->wue, err, cap) != 0) rc = -1;
     else if (log) log("Windows User Experience: autounattend.xml written.", luser);
   }
   stage(prog, puser, 88);
-  if (!rc && gpt && o->uefi_validate) {
+  if (!rc) rc = verify_windows_tree(mnt, log, luser, err, cap);
+  if (!rc && o->uefi_validate) {
     char efi[768];
-    snprintf(efi, sizeof efi, "%s/EFI/BOOT/bootx64.efi", mnt_esp);
+    snprintf(efi, sizeof efi, "%s/efi/boot/bootx64.efi", mnt);
     if (access(efi, R_OK) == 0) {
       unsigned sub = 0;
       char verr[256] = {0};
       if (rufux_validate_efi(efi, &sub, verr, sizeof verr) == 0) {
-        if (log) log("UEFI media validation: ESP bootloader OK (header check only).", luser);
+        if (log) log("UEFI media validation: Windows bootloader header OK (subsystem check only).", luser);
       } else if (log) {
         snprintf(m, sizeof m, "UEFI media validation warning: %s", verr);
         log(m, luser);
@@ -570,29 +576,15 @@ static int flow_windows(const char *src, const char *dst, const RufuxCreateOpts 
     }
   }
   stage(prog, puser, 90);
+  sync();
   char uerr[512] = {0};
-  if (gpt && rufux_unmount(esp, 0, uerr, sizeof uerr) != 0 && !rc) {
-    snprintf(err, cap, "installed but ESP unmount failed: %s", uerr);
-    rc = -1;
-  }
-  if (rufux_unmount(main, 0, uerr, sizeof uerr) != 0 && !rc) {
+  if (rufux_unmount(p1, 0, uerr, sizeof uerr) != 0 && !rc) {
     snprintf(err, cap, "installed but unmount failed: %s", uerr);
     rc = -1;
   }
-  if (!rc) {
-    if (gpt) {
-      RufuxBootOpts bo = {.kind = "gpt", .dry_run = 0,
-                          .allow_fixed = o->allow_fixed, .yes = 1};
-      if (rufux_install_mbr(dst, &bo, err, cap) != 0) rc = -1;
-    } else {
-      if (rufux_ntfs_pbr(main, 0, err, cap) != 0) rc = -1;
-      else {
-        RufuxBootOpts bo = {.kind = "bios", .dry_run = 0,
-                            .allow_fixed = o->allow_fixed, .yes = 1};
-        if (rufux_install_mbr(dst, &bo, err, cap) != 0) rc = -1;
-      }
-    }
-  }
+  if (!rc && !gpt && log)
+    log("NOTE: this NTFS stick boots on UEFI machines only. Legacy BIOS boot needs the "
+        "Windows NTFS loader, which mkfs.ntfs does not write (sectors 1-15 of $Boot).", luser);
   if (!rc) stage(prog, puser, 100);
   return rc;
 }
