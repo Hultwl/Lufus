@@ -455,7 +455,7 @@ static void feed_stream(const char *buf, gssize n, char *acc, size_t *len,
     *nl = 0;
     char *t = line;
     while (*t == '\r' || *t == ' ') t++;
-    if (t[0] && !strchr(t, '%')) {
+    if (t[0] && !strchr(t, '%') && strncmp(t, "+ ", 2)) {
       gui_log(t);
       if (is_err) snprintf(last_worker_err, sizeof last_worker_err, "%s", t);
     }

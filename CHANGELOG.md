@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.2.6 (mount race + honest failure reasons)
+
+- Burns twice died seconds after formatting while the same mount
+  worked by hand: fresh signatures can still be settling inside
+  udisksd, so there is now a rescan after formatting plus one
+  rescan-and-retry on each mount before failing.
+- The GUI failure dialog no longer shows command-echo lines as the
+  reason (only real error text).
+
 ## 1.2.5 (answer file aligned with Rufus)
 
 - autounattend.xml rewritten against upstream Rufus wue.c: wcm

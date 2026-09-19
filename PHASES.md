@@ -57,6 +57,8 @@ packaging (PKGBUILD/Flatpak/man/desktop), CI, and a hardware matrix.
   swallowing it)
 - **v1.2.5**: answer file aligned with Rufus wue.c (namespaces,
   reg-command bypasses, BitLocker guard)
+- **v1.2.6**: settle after format + one mount retry (GUI burns
+  kept dying right after mkfs while hand mounts worked)
 
 The pattern: someone (usually a reviewer with QEMU) finds something real,
 it gets fixed with a regression test, it ships. That's the whole process.

@@ -508,11 +508,24 @@ static int flow_windows(const char *src, const char *dst, const RufuxCreateOpts 
     snprintf(main, sizeof main, "%s", p1);
     if (rufux_format(main, &main_o, err, cap) != 0) return -1;
   }
+  // Fresh filesystems need a beat to propagate (udev/udisks probe the new
+  // signatures asynchronously); mounting instantly can fail on stale data.
+  rescan_disk(dst);
   stage(prog, puser, 10);
   char mnt_main[512] = {0}, mnt_esp[512] = {0};
-  if (rufux_mount(main, 0, mnt_main, sizeof mnt_main, err, cap) != 0) return -1;
+  // Fresh signatures can still be settling inside udisksd when we mount
+  // seconds after mkfs: rescan + one retry before failing the burn.
+  if (rufux_mount(main, 0, mnt_main, sizeof mnt_main, err, cap) != 0) {
+    rescan_disk(dst);
+    if (rufux_mount(main, 0, mnt_main, sizeof mnt_main, err, cap) != 0) return -1;
+  }
   int rc = 0;
-  if (gpt && rufux_mount(esp, 0, mnt_esp, sizeof mnt_esp, err, cap) != 0) rc = -1;
+  if (gpt) {
+    if (rufux_mount(esp, 0, mnt_esp, sizeof mnt_esp, err, cap) != 0) {
+      rescan_disk(dst);
+      if (rufux_mount(esp, 0, mnt_esp, sizeof mnt_esp, err, cap) != 0) rc = -1;
+    }
+  }
   ProgMap em = {prog, puser, 10, 70};
   if (!rc && rufux_extract_iso_progress(src, mnt_main, 0,
                                        prog ? (RufuxExtractProgress)mapped : NULL, &em,
